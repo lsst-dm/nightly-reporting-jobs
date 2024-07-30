@@ -1,5 +1,8 @@
 name: Build container for nightly reporting jobs
 on:  
+  pull_request:
+    branches:
+      - 'main'
   workflow_dispatch:
     inputs:
       stackTag:
