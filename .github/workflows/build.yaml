@@ -1,5 +1,5 @@
-name: Build container for nightly reporting jobs
-on:  
+name: Build job container
+on:
   pull_request:
     branches:
       - 'main'
@@ -36,6 +36,7 @@ jobs:
             --label "stacktag=${STACK_TAG}" \
       - name: Push image to registries
         run: |
-          echo IMAGE_ID=$IMAGE_ID
+          echo STACK_TAG=$STACK_TAG
+          IMAGE_ID="ghcr.io/${{ github.repository_owner }}/$IMAGE_NAME"
           docker tag $IMAGE_NAME $IMAGE_ID:$STACK_TAG
-          docker push $IMAGE_ID:$VERSION
+          docker push $IMAGE_ID:$STACK_TAG
