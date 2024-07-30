@@ -34,6 +34,15 @@ def make_summary_message(day_obs):
     missing_visits = [x[0] for x in missing_pvis]
     output_lines.append("Number of unsuccessful processCcd attempts (no resulting initial_pvi): {:d}".format(len(missing_pvis)))
 
+    dia_visit_detector = set([(x.dataId['visit'], x.dataId['detector']) for x in b.registry.queryDatasets("apdb_marker")])
+    output_lines.append("Number of successful DIA attempted: {:d}".format(len(dia_visit_detector)))
+
+    missing_dias = set(log_visit_detector - dia_visit_detector)
+    missing_visits = [x[0] for x in missing_dias]
+    output_lines.append("Number of unsuccessful DIA attempts (no resulting apdb_marker): {:d}".format(len(missing_dias)))
+
+    output_lines.append(f"<https://usdf-rsp-dev.slac.stanford.edu/times-square/github/lsst-dm/vv-team-notebooks/PREOPS-prompt-error-msgs?day_obs={day_obs}&instrument=LATISS&ts_hide_code=1|Full Error Log>")
+
     return "\n".join(output_lines)
 
 
