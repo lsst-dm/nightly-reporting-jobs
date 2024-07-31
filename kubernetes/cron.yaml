@@ -1,0 +1,72 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: nightly-reporting
+spec:
+  timeZone: 'US/Pacific'
+  schedule: "0 7 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          initContainers:
+          - name: fix-secret-permissions
+            image: busybox
+            imagePullPolicy: IfNotPresent
+            command: ["/bin/sh"]
+            args:
+              - -c
+              - |
+                cp -RL /tmp/secrets-raw/* /opt/lsst/butler/
+                chown 1000:1000 /opt/lsst/butler/*
+                chmod 0400 /opt/lsst/butler/*
+            volumeMounts:
+            - name: butler-secrets-raw
+              mountPath: /tmp/secrets-raw
+              readOnly: true
+            - name: butler-secrets
+              mountPath: /opt/lsst/butler
+              readOnly: false
+          volumes:
+          containers:
+          - name: run-nightly-reporting-scripts
+            image: ghcr.io/lsst-dm/nightly-reporting:prod
+            imagePullPolicy: Always
+            command: ["/bin/sh"]
+            args:
+              - -c
+              - |
+                source /opt/lsst/software/stack/loadLSST.bash
+                setup lsst_distrib
+                python /scripts/prompt_processing_summary.py
+            env:
+            - name: S3_ENDPOINT_URL
+              value: "https://s3dfrgw.slac.stanford.edu"
+            - name: DAF_BUTLER_REPOSITORY_INDEX
+              value: "s3://rubin-summit-users/data-repos.yaml"
+            - name: AWS_SHARED_CREDENTIALS_FILE
+              value: /opt/lsst/butler/aws-credentials.ini
+            - name: LSST_DB_AUTH
+              value: /opt/lsst/butler/db-auth.yaml
+            - name: SLACK_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: slack-webhook
+                  key: url
+            volumeMounts:
+            - name: butler-secrets
+              mountPath: /opt/lsst/butler
+              readOnly: true
+          volumes:
+          - name: butler-secrets
+            emptyDir: {}
+          - name: butler-secrets-raw
+            secret:
+              secretName: butler-secrets
+              items:
+              - key: datastore
+                path: aws-credentials.ini
+              - key: dbauth
+                path: db-auth.yaml
+              defaultMode: 0400
+          restartPolicy: OnFailure
