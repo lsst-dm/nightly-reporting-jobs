@@ -1,4 +1,3 @@
-
 import sys
 import os
 import lsst.daf.butler as dafButler
@@ -6,14 +5,27 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 import requests
 
+
 def make_summary_message(day_obs):
+    """Make Prompt Processing summary message for a night
+
+    Parameters
+    ----------
+    day_obs : `str`
+        day_obs in the format of YYYY-MM-DD.
+    """
 
     output_lines = []
 
     butler_nocollection = dafButler.Butler("/repo/embargo")
-
-    collections = list(butler_nocollection.registry.queryCollections(f"LATISS/prompt/output-{day_obs:s}*"))
-    collection = collections[0]
+    try:
+        collections = butler_nocollection.registry.queryCollections(
+            f"LATISS/prompt/output-{day_obs:s}"
+        )
+        collection = list(collections)[0]
+    except dafButler.registry.MissingCollectionError:
+        output_lines.append(f"No output collection was found for {day_obs:s}")
+        return "\n".join(output_lines)
 
     b = dafButler.Butler("/repo/embargo", collections=[collection, "LATISS/defaults"])
 
