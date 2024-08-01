@@ -10,6 +10,10 @@ on:
         required: true
         default: 'w_latest'
         type: string
+      makeProd:
+        description: 'Push container with "prod" tag'
+        required: false
+        type: boolean
 
 jobs:
   build-image:
@@ -29,12 +33,24 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Determine the image tag
+        run: |
+          docker run "lsstsqre/centos:7-stack-lsst_distrib-$STACK_TAG" bash -c "cat stack/miniconda*/ups_db/global.tags" > eups.tag
+          echo "eups tag = $(< eups.tag)"
+          echo "IMAGE_TAG=$(< eups.tag)" >> $GITHUB_ENV
+
+      - name: Tag as prod if selected
+        if: ${{ inputs.makeProd }}
+        run: |
+          echo "Tag this image as prod"
+          echo "IMAGE_TAG=prod" >> $GITHUB_ENV
+
       - name: Build and push image
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
-          tags: "${{ env.IMAGE_ID }}:${{ env.STACK_TAG }}"
+          tags: "${{ env.IMAGE_ID }}:${{ env.IMAGE_TAG }}"
           labels: |
             "runnumber=${{ github.run_id }}"
             "stacktag=${{ env.STACK_TAG }}"
