@@ -17,6 +17,23 @@ def make_summary_message(day_obs):
 
     output_lines = []
 
+    day_obs_int = int(day_obs.replace("-", ""))
+
+    b = dafButler.Butler("/repo/embargo", collections="LATISS/raw/all")
+    raw_visit_detector = set(
+        [
+            (x.dataId["exposure"], x.dataId["detector"])
+            for x in b.registry.queryDatasets(
+                "raw",
+                where=f"exposure.day_obs={day_obs_int} AND exposure.observation_type='science'",
+            )
+        ]
+    )
+    output_lines.append("Number of science raws: {:d}".format(len(raw_visit_detector)))
+
+    if len(raw_visit_detector) == 0:
+        return "\n".join(output_lines)
+
     butler_nocollection = dafButler.Butler("/repo/embargo")
     try:
         collections = butler_nocollection.registry.queryCollections(
@@ -28,13 +45,6 @@ def make_summary_message(day_obs):
         return "\n".join(output_lines)
 
     b = dafButler.Butler("/repo/embargo", collections=[collection, "LATISS/defaults"])
-
-    day_obs_int = int(day_obs.replace('-',''))
-    raw_visit_detector = set([(x.dataId['exposure'], x.dataId['detector']) for x in b.registry.queryDatasets("raw", where=f"exposure.day_obs={day_obs_int} AND exposure.observation_type='science'")])
-    output_lines.append("Number of science raws: {:d}".format(len(raw_visit_detector)))
-
-    if len(raw_visit_detector) == 0:
-        sys.exit(0)
 
     log_visit_detector = set([(x.dataId['exposure'], x.dataId['detector']) for x in b.registry.queryDatasets("isr_log")])
     output_lines.append("Number of ISRs attempted: {:d}".format(len(log_visit_detector)))
