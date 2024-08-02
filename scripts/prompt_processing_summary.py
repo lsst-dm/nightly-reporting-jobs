@@ -1,4 +1,3 @@
-
 import sys
 import os
 import lsst.daf.butler as dafButler
@@ -6,23 +5,46 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 import requests
 
+
 def make_summary_message(day_obs):
+    """Make Prompt Processing summary message for a night
+
+    Parameters
+    ----------
+    day_obs : `str`
+        day_obs in the format of YYYY-MM-DD.
+    """
 
     output_lines = []
 
-    butler_nocollection = dafButler.Butler("/repo/embargo")
+    day_obs_int = int(day_obs.replace("-", ""))
 
-    collections = list(butler_nocollection.registry.queryCollections(f"LATISS/prompt/output-{day_obs:s}*"))
-    collection = collections[0]
-
-    b = dafButler.Butler("/repo/embargo", collections=[collection, "LATISS/defaults"])
-
-    day_obs_int = int(day_obs.replace('-',''))
-    raw_visit_detector = set([(x.dataId['exposure'], x.dataId['detector']) for x in b.registry.queryDatasets("raw", where=f"exposure.day_obs={day_obs_int} AND exposure.observation_type='science'")])
+    b = dafButler.Butler("/repo/embargo", collections="LATISS/raw/all")
+    raw_visit_detector = set(
+        [
+            (x.dataId["exposure"], x.dataId["detector"])
+            for x in b.registry.queryDatasets(
+                "raw",
+                where=f"exposure.day_obs={day_obs_int} AND exposure.observation_type='science'",
+            )
+        ]
+    )
     output_lines.append("Number of science raws: {:d}".format(len(raw_visit_detector)))
 
     if len(raw_visit_detector) == 0:
-        sys.exit(0)
+        return "\n".join(output_lines)
+
+    butler_nocollection = dafButler.Butler("/repo/embargo")
+    try:
+        collections = butler_nocollection.registry.queryCollections(
+            f"LATISS/prompt/output-{day_obs:s}"
+        )
+        collection = list(collections)[0]
+    except dafButler.registry.MissingCollectionError:
+        output_lines.append(f"No output collection was found for {day_obs:s}")
+        return "\n".join(output_lines)
+
+    b = dafButler.Butler("/repo/embargo", collections=[collection, "LATISS/defaults"])
 
     log_visit_detector = set([(x.dataId['exposure'], x.dataId['detector']) for x in b.registry.queryDatasets("isr_log")])
     output_lines.append("Number of ISRs attempted: {:d}".format(len(log_visit_detector)))
