@@ -30,6 +30,17 @@ def make_summary_message(day_obs):
         "Number of science raw exposures: {:d}".format(raw_exposures.count())
     )
 
+    raw_exposures = butler_nocollection.registry.queryDimensionRecords(
+        "exposure",
+        instrument="LATISS",
+        where=f"day_obs=day_obs_int AND exposure.science_program IN (survey)",
+        bind={"day_obs_int": day_obs_int, "survey": survey},
+    )
+
+    output_lines.append(
+        "Number of {:s} raws: {:d}".format(survey, raw_exposures.count())
+    )
+
     if raw_exposures.count() == 0:
         return "\n".join(output_lines)
 
@@ -42,6 +53,13 @@ def make_summary_message(day_obs):
         output_lines.append(f"No output collection was found for {day_obs:s}")
         return "\n".join(output_lines)
 
+    sfm_counts = butler_nocollection.registry.queryDatasets(
+        "isr_log", collections=f"LATISS/prompt/output-{day_obs:s}/SingleFrame*"
+    ).count()
+    dia_counts = butler_nocollection.registry.queryDatasets(
+        "isr_log", collections=f"LATISS/prompt/output-{day_obs:s}/ApPipe*"
+    ).count()
+
     b = dafButler.Butler("/repo/embargo", collections=[collection, "LATISS/defaults"])
 
     log_visit_detector = set(
@@ -51,26 +69,15 @@ def make_summary_message(day_obs):
         ]
     )
     output_lines.append(
-        "Number of ISRs attempted: {:d}".format(len(log_visit_detector))
-    )
-
-    pvi_visit_detector = set(
-        [
-            (x.dataId["visit"], x.dataId["detector"])
-            for x in b.registry.queryDatasets("initial_pvi")
-        ]
-    )
-    output_lines.append(
-        "Number of successful initial_pvi results: {:d}".format(len(pvi_visit_detector))
-    )
-
-    missing_pvis = set(log_visit_detector - pvi_visit_detector)
-    missing_visits = [x[0] for x in missing_pvis]
-    output_lines.append(
-        "Number of unsuccessful processCcd attempts (no resulting initial_pvi): {:d}".format(
-            len(missing_pvis)
+        "Number of processing attempts: {:d} total, {:d} SingleFrame, {:d} ApPipe".format(
+            len(log_visit_detector), sfm_counts, dia_counts
         )
     )
+
+    sfm = b.registry.queryDatasets(
+        "initial_photometry_match_detector",
+    ).count()
+    output_lines.append("Number of successful processCcd: {:d}".format(sfm))
 
     dia_visit_detector = set(
         [
@@ -79,14 +86,16 @@ def make_summary_message(day_obs):
         ]
     )
     output_lines.append(
-        "Number of successful DIA attempted: {:d}".format(len(dia_visit_detector))
+        "Number of successful DIA: {:d} out of {:d} ApPipe attempts".format(
+            len(dia_visit_detector), dia_counts
+        )
     )
 
     missing_dias = set(log_visit_detector - dia_visit_detector)
     missing_visits = [x[0] for x in missing_dias]
     output_lines.append(
         "Number of unsuccessful DIA attempts (no resulting apdb_marker): {:d}".format(
-            len(missing_dias)
+            len(missing_dias) - sfm_counts
         )
     )
 
