@@ -33,11 +33,15 @@ def make_summary_message(day_obs):
     raw_exposures = butler_nocollection.registry.queryDimensionRecords(
         "exposure",
         instrument="LATISS",
-        where=f"day_obs={day_obs_int} AND exposure.observation_type='science'",
+        where=f"day_obs={day_obs_int} AND exposure.can_see_sky",
     )
 
+    # Do not send message if there are no on-sky exposures.
+    if raw_exposures.count() == 0:
+        sys.exit(0)
+
     output_lines.append(
-        "Number of science raw exposures: {:d}".format(raw_exposures.count())
+        "Number of on-sky exposures: {:d}".format(raw_exposures.count())
     )
 
     raw_exposures = butler_nocollection.registry.queryDimensionRecords(
@@ -48,7 +52,7 @@ def make_summary_message(day_obs):
     )
 
     output_lines.append(
-        f"{survey}: {len(next_visits)} uncanceled nextVisit, {raw_exposures.count():d} raws"
+        f"Number for {survey}: {len(next_visits)} uncanceled nextVisit, {raw_exposures.count():d} raws"
     )
 
     if raw_exposures.count() == 0:
@@ -63,6 +67,13 @@ def make_summary_message(day_obs):
         output_lines.append(f"No output collection was found for {day_obs:s}")
         return "\n".join(output_lines)
 
+    sfm_counts = butler_nocollection.registry.queryDatasets(
+        "isr_log", collections=f"LATISS/prompt/output-{day_obs:s}/SingleFrame*"
+    ).count()
+    dia_counts = butler_nocollection.registry.queryDatasets(
+        "isr_log", collections=f"LATISS/prompt/output-{day_obs:s}/ApPipe*"
+    ).count()
+
     b = dafButler.Butler("/repo/embargo", collections=[collection, "LATISS/defaults"])
 
     log_visit_detector = set(
@@ -72,24 +83,17 @@ def make_summary_message(day_obs):
         ]
     )
     output_lines.append(
-        "Number of ISRs attempted: {:d}".format(len(log_visit_detector))
+        "Number of main pipeline runs: {:d} total, {:d} SingleFrame, {:d} ApPipe".format(
+            len(log_visit_detector), sfm_counts, dia_counts
+        )
     )
 
-    pvi_visit_detector = set(
-        [
-            (x.dataId["visit"], x.dataId["detector"])
-            for x in b.registry.queryDatasets("initial_pvi")
-        ]
-    )
+    sfm_outputs = b.registry.queryDatasets(
+        "initial_photometry_match_detector",
+    ).count()
     output_lines.append(
-        "Number of successful initial_pvi results: {:d}".format(len(pvi_visit_detector))
-    )
-
-    missing_pvis = set(log_visit_detector - pvi_visit_detector)
-    missing_visits = [x[0] for x in missing_pvis]
-    output_lines.append(
-        "Number of unsuccessful processCcd attempts (no resulting initial_pvi): {:d}".format(
-            len(missing_pvis)
+        "- ProcessCcd: {:d} attempts, {:d} succeeded, {:d} failed.".format(
+            sfm_counts + dia_counts, sfm_outputs, sfm_counts + dia_counts - sfm_outputs
         )
     )
 
@@ -100,14 +104,8 @@ def make_summary_message(day_obs):
         ]
     )
     output_lines.append(
-        "Number of successful DIA attempted: {:d}".format(len(dia_visit_detector))
-    )
-
-    missing_dias = set(log_visit_detector - dia_visit_detector)
-    missing_visits = [x[0] for x in missing_dias]
-    output_lines.append(
-        "Number of unsuccessful DIA attempts (no resulting apdb_marker): {:d}".format(
-            len(missing_dias)
+        "- ApPipe: {:d} attempts, {:d} succeeded, {:d} failed.".format(
+            dia_counts, len(dia_visit_detector), dia_counts - len(dia_visit_detector)
         )
     )
 
@@ -145,6 +143,10 @@ def make_summary_message(day_obs):
                 if counts > 0:
                     output_lines.append(f"  - {counts} to be investigated.")
 
+    output_lines.append(
+        f"<https://usdf-rsp-dev.slac.stanford.edu/times-square/github/lsst-sqre/times-square-usdf/prompt-processing/groups?date={day_obs}&instrument=LATISS&survey={survey}&mode=DEBUG&ts_hide_code=1|Timing plots>"
+    )
+
     return "\n".join(output_lines)
 
 
@@ -154,7 +156,9 @@ if __name__ == "__main__":
     day_obs = date.today() - timedelta(days=1)
     day_obs_string = day_obs.strftime("%Y-%m-%d")
     summary = make_summary_message(day_obs_string)
-    output_message = f"*LATISS {day_obs.strftime('%A %Y-%m-%d')}*\n" + summary
+    output_message = (
+        f":clamps: *LATISS {day_obs.strftime('%A %Y-%m-%d')}* :clamps: \n" + summary
+    )
 
     if not url:
         print("Must set environment variable SLACK_WEBHOOK_URL in order to post")
