@@ -46,30 +46,60 @@ def make_summary_message(day_obs):
 
     b = dafButler.Butler("/repo/embargo", collections=[collection, "LATISS/defaults"])
 
-    log_visit_detector = set([(x.dataId['exposure'], x.dataId['detector']) for x in b.registry.queryDatasets("isr_log")])
-    output_lines.append("Number of ISRs attempted: {:d}".format(len(log_visit_detector)))
+    log_visit_detector = set(
+        [
+            (x.dataId["exposure"], x.dataId["detector"])
+            for x in b.registry.queryDatasets("isr_log")
+        ]
+    )
+    output_lines.append(
+        "Number of ISRs attempted: {:d}".format(len(log_visit_detector))
+    )
 
-    pvi_visit_detector = set([(x.dataId['visit'], x.dataId['detector']) for x in b.registry.queryDatasets("initial_pvi")])
-    output_lines.append("Number of successful initial_pvi results: {:d}".format(len(pvi_visit_detector)))
+    pvi_visit_detector = set(
+        [
+            (x.dataId["visit"], x.dataId["detector"])
+            for x in b.registry.queryDatasets("initial_pvi")
+        ]
+    )
+    output_lines.append(
+        "Number of successful initial_pvi results: {:d}".format(len(pvi_visit_detector))
+    )
 
     missing_pvis = set(log_visit_detector - pvi_visit_detector)
     missing_visits = [x[0] for x in missing_pvis]
-    output_lines.append("Number of unsuccessful processCcd attempts (no resulting initial_pvi): {:d}".format(len(missing_pvis)))
+    output_lines.append(
+        "Number of unsuccessful processCcd attempts (no resulting initial_pvi): {:d}".format(
+            len(missing_pvis)
+        )
+    )
 
-    dia_visit_detector = set([(x.dataId['visit'], x.dataId['detector']) for x in b.registry.queryDatasets("apdb_marker")])
-    output_lines.append("Number of successful DIA attempted: {:d}".format(len(dia_visit_detector)))
+    dia_visit_detector = set(
+        [
+            (x.dataId["visit"], x.dataId["detector"])
+            for x in b.registry.queryDatasets("apdb_marker")
+        ]
+    )
+    output_lines.append(
+        "Number of successful DIA attempted: {:d}".format(len(dia_visit_detector))
+    )
 
     missing_dias = set(log_visit_detector - dia_visit_detector)
     missing_visits = [x[0] for x in missing_dias]
-    output_lines.append("Number of unsuccessful DIA attempts (no resulting apdb_marker): {:d}".format(len(missing_dias)))
+    output_lines.append(
+        "Number of unsuccessful DIA attempts (no resulting apdb_marker): {:d}".format(
+            len(missing_dias)
+        )
+    )
 
-    output_lines.append(f"<https://usdf-rsp-dev.slac.stanford.edu/times-square/github/lsst-dm/vv-team-notebooks/PREOPS-prompt-error-msgs?day_obs={day_obs}&instrument=LATISS&ts_hide_code=1|Full Error Log>")
+    output_lines.append(
+        f"<https://usdf-rsp-dev.slac.stanford.edu/times-square/github/lsst-dm/vv-team-notebooks/PREOPS-prompt-error-msgs?day_obs={day_obs}&instrument=LATISS&ts_hide_code=1|Full Error Log>"
+    )
 
     return "\n".join(output_lines)
 
 
 if __name__ == "__main__":
-
     url = os.getenv("SLACK_WEBHOOK_URL")
 
     day_obs = date.today() - timedelta(days=1)
@@ -84,10 +114,9 @@ if __name__ == "__main__":
         sys.exit(1)
 
     res = requests.post(
-            url, headers={"Content-Type": "application/json"},
-            json={"text": output_message}
-            )
+        url, headers={"Content-Type": "application/json"}, json={"text": output_message}
+    )
 
-    if(res.status_code != 200):
+    if res.status_code != 200:
         print("Failed to send message")
         print(res)
