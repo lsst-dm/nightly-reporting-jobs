@@ -19,22 +19,20 @@ def make_summary_message(day_obs):
 
     day_obs_int = int(day_obs.replace("-", ""))
 
-    b = dafButler.Butler("/repo/embargo", collections="LATISS/raw/all")
-    raw_visit_detector = set(
-        [
-            (x.dataId["exposure"], x.dataId["detector"])
-            for x in b.registry.queryDatasets(
-                "raw",
-                where=f"exposure.day_obs={day_obs_int} AND exposure.observation_type='science'",
-            )
-        ]
+    butler_nocollection = dafButler.Butler("/repo/embargo")
+    raw_exposures = butler_nocollection.registry.queryDimensionRecords(
+        "exposure",
+        instrument="LATISS",
+        where=f"day_obs={day_obs_int} AND exposure.observation_type='science'",
     )
-    output_lines.append("Number of science raws: {:d}".format(len(raw_visit_detector)))
 
-    if len(raw_visit_detector) == 0:
+    output_lines.append(
+        "Number of science raw exposures: {:d}".format(raw_exposures.count())
+    )
+
+    if raw_exposures.count() == 0:
         return "\n".join(output_lines)
 
-    butler_nocollection = dafButler.Butler("/repo/embargo")
     try:
         collections = butler_nocollection.registry.queryCollections(
             f"LATISS/prompt/output-{day_obs:s}"
