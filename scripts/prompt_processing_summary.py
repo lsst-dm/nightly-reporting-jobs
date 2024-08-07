@@ -1,9 +1,12 @@
+import asyncio
 import sys
 import os
 import lsst.daf.butler as dafButler
 from dataclasses import dataclass
 from datetime import date, timedelta
 import requests
+
+from utils import *
 
 
 def make_summary_message(day_obs):
@@ -18,6 +21,9 @@ def make_summary_message(day_obs):
     output_lines = []
 
     day_obs_int = int(day_obs.replace("-", ""))
+
+    survey = "AUXTEL_PHOTO_IMAGING"
+    next_visits = asyncio.run(get_next_visit_events(day_obs, 2, survey))
 
     butler_nocollection = dafButler.Butler("/repo/embargo")
     raw_exposures = butler_nocollection.registry.queryDimensionRecords(
@@ -38,7 +44,7 @@ def make_summary_message(day_obs):
     )
 
     output_lines.append(
-        "Number of {:s} raws: {:d}".format(survey, raw_exposures.count())
+        f"{survey}: {len(next_visits)} uncanceled nextVisit, {raw_exposures.count():d} raws"
     )
 
     if raw_exposures.count() == 0:
@@ -102,6 +108,36 @@ def make_summary_message(day_obs):
     output_lines.append(
         f"<https://usdf-rsp-dev.slac.stanford.edu/times-square/github/lsst-dm/vv-team-notebooks/PREOPS-prompt-error-msgs?day_obs={day_obs}&instrument=LATISS&ts_hide_code=1|Full Error Log>"
     )
+
+    raws = {r.id: r.group for r in raw_exposures}
+    log_group_detector = {
+        (raws[visit], detector) for visit, detector in log_visit_detector
+    }
+    df = get_status_code_from_loki(day_obs)
+    df = df[(df["instrument"] == "LATISS") & (df["group"].isin(raws.values()))]
+
+    status_groups = df.set_index(["group", "detector"]).groupby("code").groups
+    for code in status_groups:
+        counts = len(status_groups[code])
+        output_lines.append(f"- {counts} counts have status code {code}.")
+
+        indices = status_groups[code].intersection(log_group_detector)
+        if not indices.empty and code != 200:
+            output_lines.append(f"  - {len(indices)} have outputs.")
+            counts -= len(indices)
+
+        match code:
+            case 500:
+                df = get_timeout_from_loki(day_obs)
+                df = df[
+                    (df["instrument"] == "LATISS") & (df["group"].isin(raws.values()))
+                ].set_index(["group", "detector"])
+                indices = status_groups[code].intersection(df.index)
+                if not indices.empty:
+                    output_lines.append(f"  - {len(indices)} timed out.")
+                    counts -= len(indices)
+                if counts > 0:
+                    output_lines.append(f"  - {counts} to be investigated.")
 
     return "\n".join(output_lines)
 
