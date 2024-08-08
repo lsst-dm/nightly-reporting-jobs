@@ -1,9 +1,12 @@
+import asyncio
 import sys
 import os
 import lsst.daf.butler as dafButler
 from dataclasses import dataclass
 from datetime import date, timedelta
 import requests
+
+from utils import *
 
 
 def make_summary_message(day_obs):
@@ -19,22 +22,34 @@ def make_summary_message(day_obs):
 
     day_obs_int = int(day_obs.replace("-", ""))
 
-    b = dafButler.Butler("/repo/embargo", collections="LATISS/raw/all")
-    raw_visit_detector = set(
-        [
-            (x.dataId["exposure"], x.dataId["detector"])
-            for x in b.registry.queryDatasets(
-                "raw",
-                where=f"exposure.day_obs={day_obs_int} AND exposure.observation_type='science'",
-            )
-        ]
-    )
-    output_lines.append("Number of science raws: {:d}".format(len(raw_visit_detector)))
-
-    if len(raw_visit_detector) == 0:
-        return "\n".join(output_lines)
+    survey = "AUXTEL_PHOTO_IMAGING"
+    next_visits = asyncio.run(get_next_visit_events(day_obs, 2, survey))
 
     butler_nocollection = dafButler.Butler("/repo/embargo")
+    raw_exposures = butler_nocollection.registry.queryDimensionRecords(
+        "exposure",
+        instrument="LATISS",
+        where=f"day_obs={day_obs_int} AND exposure.observation_type='science'",
+    )
+
+    output_lines.append(
+        "Number of science raw exposures: {:d}".format(raw_exposures.count())
+    )
+
+    raw_exposures = butler_nocollection.registry.queryDimensionRecords(
+        "exposure",
+        instrument="LATISS",
+        where=f"day_obs=day_obs_int AND exposure.science_program IN (survey)",
+        bind={"day_obs_int": day_obs_int, "survey": survey},
+    )
+
+    output_lines.append(
+        f"{survey}: {len(next_visits)} uncanceled nextVisit, {raw_exposures.count():d} raws"
+    )
+
+    if raw_exposures.count() == 0:
+        return "\n".join(output_lines)
+
     try:
         collections = butler_nocollection.registry.queryCollections(
             f"LATISS/prompt/output-{day_obs:s}"
@@ -44,38 +59,103 @@ def make_summary_message(day_obs):
         output_lines.append(f"No output collection was found for {day_obs:s}")
         return "\n".join(output_lines)
 
+    sfm_counts = butler_nocollection.registry.queryDatasets(
+        "isr_log", collections=f"LATISS/prompt/output-{day_obs:s}/SingleFrame*"
+    ).count()
+    dia_counts = butler_nocollection.registry.queryDatasets(
+        "isr_log", collections=f"LATISS/prompt/output-{day_obs:s}/ApPipe*"
+    ).count()
+
     b = dafButler.Butler("/repo/embargo", collections=[collection, "LATISS/defaults"])
 
-    log_visit_detector = set([(x.dataId['exposure'], x.dataId['detector']) for x in b.registry.queryDatasets("isr_log")])
-    output_lines.append("Number of ISRs attempted: {:d}".format(len(log_visit_detector)))
+    log_visit_detector = set(
+        [
+            (x.dataId["exposure"], x.dataId["detector"])
+            for x in b.registry.queryDatasets("isr_log")
+        ]
+    )
+    output_lines.append(
+        "Number of processing attempts: {:d} total, {:d} SingleFrame, {:d} ApPipe".format(
+            len(log_visit_detector), sfm_counts, dia_counts
+        )
+    )
 
-    pvi_visit_detector = set([(x.dataId['visit'], x.dataId['detector']) for x in b.registry.queryDatasets("initial_pvi")])
-    output_lines.append("Number of successful initial_pvi results: {:d}".format(len(pvi_visit_detector)))
+    sfm = b.registry.queryDatasets(
+        "initial_photometry_match_detector",
+    ).count()
+    output_lines.append("Number of successful processCcd: {:d}".format(sfm))
 
-    missing_pvis = set(log_visit_detector - pvi_visit_detector)
-    missing_visits = [x[0] for x in missing_pvis]
-    output_lines.append("Number of unsuccessful processCcd attempts (no resulting initial_pvi): {:d}".format(len(missing_pvis)))
+    dia_visit_detector = set(
+        [
+            (x.dataId["visit"], x.dataId["detector"])
+            for x in b.registry.queryDatasets("apdb_marker")
+        ]
+    )
 
-    dia_visit_detector = set([(x.dataId['visit'], x.dataId['detector']) for x in b.registry.queryDatasets("apdb_marker")])
-    output_lines.append("Number of successful DIA attempted: {:d}".format(len(dia_visit_detector)))
+    output_lines.append(
+        "Number of successful DIA: {:d} out of {:d} ApPipe attempts".format(
+            len(dia_visit_detector), dia_counts
+        )
+    )
 
     missing_dias = set(log_visit_detector - dia_visit_detector)
     missing_visits = [x[0] for x in missing_dias]
-    output_lines.append("Number of unsuccessful DIA attempts (no resulting apdb_marker): {:d}".format(len(missing_dias)))
+    output_lines.append(
+        "Number of unsuccessful ApPipe attempts (no resulting apdb_marker): {:d}".format(
+            len(missing_dias) - sfm_counts
+        )
+    )
 
-    output_lines.append(f"<https://usdf-rsp-dev.slac.stanford.edu/times-square/github/lsst-dm/vv-team-notebooks/PREOPS-prompt-error-msgs?day_obs={day_obs}&instrument=LATISS&ts_hide_code=1|Full Error Log>")
+    output_lines.append(
+        f"<https://usdf-rsp-dev.slac.stanford.edu/times-square/github/lsst-dm/vv-team-notebooks/PREOPS-prompt-error-msgs?day_obs={day_obs}&instrument=LATISS&ts_hide_code=1|Full Error Log>"
+    )
+
+    raws = {r.id: r.group for r in raw_exposures}
+    log_group_detector = {
+        (raws[visit], detector) for visit, detector in log_visit_detector
+    }
+    df = get_status_code_from_loki(day_obs)
+    df = df[(df["instrument"] == "LATISS") & (df["group"].isin(raws.values()))]
+
+    status_groups = df.set_index(["group", "detector"]).groupby("code").groups
+    for code in status_groups:
+        counts = len(status_groups[code])
+        output_lines.append(f"- {counts} counts have status code {code}.")
+
+        indices = status_groups[code].intersection(log_group_detector)
+        if not indices.empty and code != 200:
+            output_lines.append(f"  - {len(indices)} have outputs.")
+            counts -= len(indices)
+
+        match code:
+            case 500:
+                df = get_timeout_from_loki(day_obs)
+                df = df[
+                    (df["instrument"] == "LATISS") & (df["group"].isin(raws.values()))
+                ].set_index(["group", "detector"])
+                indices = status_groups[code].intersection(df.index)
+                if not indices.empty:
+                    output_lines.append(f"  - {len(indices)} timed out.")
+                    counts -= len(indices)
+                if counts > 0:
+                    output_lines.append(f"  - {counts} to be investigated.")
+
+    output_lines.append(
+        f"<https://usdf-rsp-dev.slac.stanford.edu/times-square/github/lsst-sqre/times-square-usdf/prompt-processing/groups?date={day_obs}&instrument=LATISS&survey={survey}&mode=DEBUG&ts_hide_code=1|Timing plots>"
+    )
 
     return "\n".join(output_lines)
 
 
 if __name__ == "__main__":
-
     url = os.getenv("SLACK_WEBHOOK_URL")
 
     day_obs = date.today() - timedelta(days=1)
     day_obs_string = day_obs.strftime("%Y-%m-%d")
     summary = make_summary_message(day_obs_string)
-    output_message = f"*LATISS {day_obs.strftime('%A %Y-%m-%d')}*\n" + summary
+    output_message = (
+        f":clamps: *LATISS {day_obs.strftime('%A %Y-%m-%d')}* :clamps: \n" + summary
+    )
 
     if not url:
         print("Must set environment variable SLACK_WEBHOOK_URL in order to post")
@@ -84,10 +164,9 @@ if __name__ == "__main__":
         sys.exit(1)
 
     res = requests.post(
-            url, headers={"Content-Type": "application/json"},
-            json={"text": output_message}
-            )
+        url, headers={"Content-Type": "application/json"}, json={"text": output_message}
+    )
 
-    if(res.status_code != 200):
+    if res.status_code != 200:
         print("Failed to send message")
         print(res)
