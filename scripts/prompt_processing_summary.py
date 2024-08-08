@@ -91,6 +91,7 @@ def make_summary_message(day_obs):
             for x in b.registry.queryDatasets("apdb_marker")
         ]
     )
+
     output_lines.append(
         "Number of successful DIA: {:d} out of {:d} ApPipe attempts".format(
             len(dia_visit_detector), dia_counts
@@ -100,7 +101,7 @@ def make_summary_message(day_obs):
     missing_dias = set(log_visit_detector - dia_visit_detector)
     missing_visits = [x[0] for x in missing_dias]
     output_lines.append(
-        "Number of unsuccessful DIA attempts (no resulting apdb_marker): {:d}".format(
+        "Number of unsuccessful ApPipe attempts (no resulting apdb_marker): {:d}".format(
             len(missing_dias) - sfm_counts
         )
     )
@@ -139,6 +140,10 @@ def make_summary_message(day_obs):
                 if counts > 0:
                     output_lines.append(f"  - {counts} to be investigated.")
 
+    output_lines.append(
+        f"<https://usdf-rsp-dev.slac.stanford.edu/times-square/github/lsst-sqre/times-square-usdf/prompt-processing/groups?date={day_obs}&instrument=LATISS&survey={survey}&mode=DEBUG&ts_hide_code=1|Timing plots>"
+    )
+
     return "\n".join(output_lines)
 
 
@@ -148,7 +153,9 @@ if __name__ == "__main__":
     day_obs = date.today() - timedelta(days=1)
     day_obs_string = day_obs.strftime("%Y-%m-%d")
     summary = make_summary_message(day_obs_string)
-    output_message = f"*LATISS {day_obs.strftime('%A %Y-%m-%d')}*\n" + summary
+    output_message = (
+        f":clamps: *LATISS {day_obs.strftime('%A %Y-%m-%d')}* :clamps: \n" + summary
+    )
 
     if not url:
         print("Must set environment variable SLACK_WEBHOOK_URL in order to post")
