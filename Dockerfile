@@ -1,4 +1,4 @@
-ARG STACK_TAG="w_2024_30"
+ARG STACK_TAG="w_latest"
 FROM lsstsqre/centos:7-stack-lsst_distrib-${STACK_TAG}
 USER root
 RUN <<EOT
