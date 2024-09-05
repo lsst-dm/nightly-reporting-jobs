@@ -26,7 +26,7 @@ def make_summary_message(day_obs):
 
     day_obs_int = int(day_obs.replace("-", ""))
 
-    survey = "AUXTEL_PHOTO_IMAGING"
+    survey = "BLOCK-306"
     next_visits = asyncio.run(get_next_visit_events(day_obs, 2, survey))
 
     butler_nocollection = dafButler.Butler("/repo/embargo")
