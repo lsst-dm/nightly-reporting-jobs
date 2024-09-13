@@ -30,56 +30,66 @@ def make_summary_message(day_obs):
     next_visits = asyncio.run(get_next_visit_events(day_obs, 2, survey))
 
     butler_nocollection = dafButler.Butler("/repo/embargo")
-    raw_exposures = butler_nocollection.registry.queryDimensionRecords(
+    raw_exposures = butler_nocollection.query_dimension_records(
         "exposure",
         instrument="LATISS",
         where=f"day_obs={day_obs_int} AND exposure.can_see_sky",
+        explain=False,
     )
 
     # Do not send message if there are no on-sky exposures.
-    if raw_exposures.count() == 0:
+    if len(raw_exposures) == 0:
         sys.exit(0)
 
-    output_lines.append(
-        "Number of on-sky exposures: {:d}".format(raw_exposures.count())
-    )
+    output_lines.append("Number of on-sky exposures: {:d}".format(len(raw_exposures)))
 
-    raw_exposures = butler_nocollection.registry.queryDimensionRecords(
+    raw_exposures = butler_nocollection.query_dimension_records(
         "exposure",
         instrument="LATISS",
         where=f"day_obs=day_obs_int AND exposure.science_program IN (survey)",
         bind={"day_obs_int": day_obs_int, "survey": survey},
+        explain=False,
     )
 
     output_lines.append(
-        f"Number for {survey}: {len(next_visits)} uncanceled nextVisit, {raw_exposures.count():d} raws"
+        f"Number for {survey}: {len(next_visits)} uncanceled nextVisit, {len(raw_exposures):d} raws"
     )
 
-    if raw_exposures.count() == 0:
+    if len(raw_exposures) == 0:
         return "\n".join(output_lines)
 
     try:
-        collections = butler_nocollection.registry.queryCollections(
+        collections = butler_nocollection.collections.query(
             f"LATISS/prompt/output-{day_obs:s}"
         )
         collection = list(collections)[0]
-    except dafButler.registry.MissingCollectionError:
+    except dafButler.MissingCollectionError:
         output_lines.append(f"No output collection was found for {day_obs:s}")
         return "\n".join(output_lines)
 
-    sfm_counts = butler_nocollection.registry.queryDatasets(
-        "isr_log", collections=f"LATISS/prompt/output-{day_obs:s}/SingleFrame*"
-    ).count()
-    dia_counts = butler_nocollection.registry.queryDatasets(
-        "isr_log", collections=f"LATISS/prompt/output-{day_obs:s}/ApPipe*"
-    ).count()
+    sfm_counts = len(
+        butler_nocollection.query_datasets(
+            "isr_log",
+            collections=f"LATISS/prompt/output-{day_obs:s}/SingleFrame*",
+            find_first=False,
+            explain=False,
+        )
+    )
+    dia_counts = len(
+        butler_nocollection.query_datasets(
+            "isr_log",
+            collections=f"LATISS/prompt/output-{day_obs:s}/ApPipe*",
+            find_first=False,
+            explain=False,
+        )
+    )
 
     b = dafButler.Butler("/repo/embargo", collections=[collection, "LATISS/defaults"])
 
     log_visit_detector = set(
         [
             (x.dataId["exposure"], x.dataId["detector"])
-            for x in b.registry.queryDatasets("isr_log")
+            for x in b.query_datasets("isr_log")
         ]
     )
     output_lines.append(
@@ -88,9 +98,12 @@ def make_summary_message(day_obs):
         )
     )
 
-    sfm_outputs = b.registry.queryDatasets(
-        "initial_photometry_match_detector",
-    ).count()
+    sfm_outputs = len(
+        b.query_datasets(
+            "initial_photometry_match_detector",
+            explain=False,
+        )
+    )
     output_lines.append(
         "- ProcessCcd: {:d} attempts, {:d} succeeded, {:d} failed.".format(
             sfm_counts + dia_counts, sfm_outputs, sfm_counts + dia_counts - sfm_outputs
@@ -100,7 +113,7 @@ def make_summary_message(day_obs):
     dia_visit_detector = set(
         [
             (x.dataId["visit"], x.dataId["detector"])
-            for x in b.registry.queryDatasets("apdb_marker")
+            for x in b.query_datasets("apdb_marker", explain=False)
         ]
     )
     output_lines.append(
