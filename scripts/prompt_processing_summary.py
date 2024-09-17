@@ -71,6 +71,8 @@ def make_summary_message(day_obs):
         butler_nocollection.query_datasets(
             "isr_log",
             collections=f"LATISS/prompt/output-{day_obs:s}/SingleFrame*",
+            where=f"exposure.science_program IN (survey)",
+            bind={"survey": survey},
             find_first=False,
             explain=False,
         )
@@ -79,6 +81,8 @@ def make_summary_message(day_obs):
         butler_nocollection.query_datasets(
             "isr_log",
             collections=f"LATISS/prompt/output-{day_obs:s}/ApPipe*",
+            where=f"exposure.science_program IN (survey)",
+            bind={"survey": survey},
             find_first=False,
             explain=False,
         )
@@ -89,7 +93,11 @@ def make_summary_message(day_obs):
     log_visit_detector = set(
         [
             (x.dataId["exposure"], x.dataId["detector"])
-            for x in b.query_datasets("isr_log")
+            for x in b.query_datasets(
+                "isr_log",
+                where=f"exposure.science_program IN (survey)",
+                bind={"survey": survey},
+            )
         ]
     )
     output_lines.append(
@@ -101,6 +109,8 @@ def make_summary_message(day_obs):
     sfm_outputs = len(
         b.query_datasets(
             "initial_photometry_match_detector",
+            where=f"exposure.science_program IN (survey)",
+            bind={"survey": survey},
             explain=False,
         )
     )
@@ -113,7 +123,12 @@ def make_summary_message(day_obs):
     dia_visit_detector = set(
         [
             (x.dataId["visit"], x.dataId["detector"])
-            for x in b.query_datasets("apdb_marker", explain=False)
+            for x in b.query_datasets(
+                "apdb_marker",
+                where=f"exposure.science_program IN (survey)",
+                bind={"survey": survey},
+                explain=False,
+            )
         ]
     )
     output_lines.append(
