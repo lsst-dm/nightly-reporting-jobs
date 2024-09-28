@@ -35,7 +35,7 @@ jobs:
 
       - name: Determine the image tag
         run: |
-          docker run "lsstsqre/centos:7-stack-lsst_distrib-$STACK_TAG" bash -c "cat stack/miniconda*/ups_db/global.tags" > eups.tag
+          docker run "lsstsqre/centos:7-stack-lsst_distrib-$STACK_TAG" bash -c "cat conda/envs/lsst-scipipe-*/share/eups/ups_db/global.tags" > eups.tag
           echo "eups tag = $(< eups.tag)"
           echo "IMAGE_TAG=$(< eups.tag)" >> $GITHUB_ENV
 
