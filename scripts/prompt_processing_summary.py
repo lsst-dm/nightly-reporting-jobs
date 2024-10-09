@@ -33,7 +33,7 @@ def make_summary_message(day_obs):
     raw_exposures = butler_nocollection.query_dimension_records(
         "exposure",
         instrument="LATISS",
-        where=f"day_obs={day_obs_int} AND exposure.can_see_sky",
+        where=f"day_obs={day_obs_int} AND exposure.can_see_sky AND exposure.observation_type='science'",
         explain=False,
     )
 
