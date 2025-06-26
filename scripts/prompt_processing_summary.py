@@ -82,7 +82,7 @@ def make_summary_message(day_obs, instrument):
     )
     if groups_without_events:
         output_lines.append(
-            f"{len(groups_without_events)} raws had no nextVisit: {",".join(groups_without_events)}"
+            f"{len(groups_without_events)} raws had no nextVisit: {', '.join(groups_without_events)}"
         )
     if len(raw_exposures) == 0:
         return "\n".join(output_lines)
