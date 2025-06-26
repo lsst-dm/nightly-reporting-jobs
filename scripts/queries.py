@@ -186,7 +186,7 @@ def get_df_from_loki(
     match_string="",
     match_string2='|= "Processing failed"',
 ):
-    """Get the IDs of the timed out cases.
+    """Query Loki and return matching log entries as a DataFrame.
 
     Parameters
     ----------
@@ -195,9 +195,9 @@ def get_df_from_loki(
     instrument : `str`
         Instrument name.
     match_string : `str`
-        Lok stream selector for Loki query.
+        Loki stream selector for Loki query.
     match_string2 : `str`
-        Lok stream selector for Loki query.
+        Additional search/filter expression for the Loki query.
 
     Returns
     -------
