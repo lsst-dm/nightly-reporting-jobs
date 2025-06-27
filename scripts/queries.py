@@ -132,9 +132,9 @@ def query_loki(day_obs, container_name, search_string):
 
     result = subprocess.run(command, capture_output=True, text=True)
     if result.returncode != 0:
-        _log.error("Loki query failed")
-        _log.error(result.stderr)
-        return
+        error_msg = f"Loki query failed: {result.stderr.strip()}"
+        _log.error(error_msg)
+        raise RuntimeError(error_msg)
 
     return result.stdout
 
