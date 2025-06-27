@@ -11,11 +11,28 @@ from queries import (
     get_df_from_loki,
 )
 
-# Total number of detectors per instrument
-INSTRUMENT_DETECTORS = {
-    "LSSTCam": 189,
-    "LSSTComCam": 9,
-    "LATISS": 1,
+# Instrument configuration
+#
+# ``detectors`` -- total number of detectors for the instrument
+# ``off``       -- number of detectors that are known to be off and
+#                  therefore should not be counted in expected totals
+# ``survey``    -- survey block associated with the instrument
+INSTRUMENT_CONFIG = {
+    "LSSTCam": {
+        "detectors": 189,
+        "off": 18,
+        "survey": "BLOCK-365",
+    },
+    "LSSTComCam": {
+        "detectors": 9,
+        "off": 0,
+        "survey": "BLOCK-320",
+    },
+    "LATISS": {
+        "detectors": 1,
+        "off": 0,
+        "survey": "BLOCK-306",
+    },
 }
 
 
@@ -33,19 +50,18 @@ def make_summary_message(day_obs, instrument):
     day_obs_int = int(day_obs.replace("-", ""))
 
     butler_alias = "embargo"
-    if instrument == "LATISS":
-        survey = "BLOCK-306"
-    elif instrument == "LSSTComCam":
-        survey = "BLOCK-320"
-    else:
-        survey = "BLOCK-365"
+    config = INSTRUMENT_CONFIG.get(instrument)
+    if not config:
+        raise KeyError(f"Unknown instrument: {instrument}")
+
+    survey = config["survey"]
     next_visits, canceled_visits = asyncio.run(
         get_next_visit_events(day_obs, instrument, survey)
     )
     total_visit_count = len(next_visits)
 
-    total_detectors = INSTRUMENT_DETECTORS.get(instrument, 0)
-    off_detector = 18 if instrument == "LSSTCam" else 0
+    total_detectors = config["detectors"]
+    off_detector = config["off"]
     active_detectors = total_detectors - off_detector
     expected_preprocessing = total_visit_count * active_detectors
     canceled_list = next_visits.index.intersection(
@@ -86,7 +102,7 @@ def make_summary_message(day_obs, instrument):
         "raw",
         f"{instrument}/raw/all",
         instrument=instrument,
-        where=f"day_obs=day_obs_int AND exposure.science_program IN (survey) AND detector < 189",
+        where=f"day_obs=day_obs_int AND exposure.science_program IN (survey) AND detector < {total_detectors}",
         bind={"day_obs_int": day_obs_int, "survey": survey},
     )
     output_lines.append(
