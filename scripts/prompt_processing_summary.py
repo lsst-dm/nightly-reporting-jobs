@@ -153,38 +153,27 @@ def make_summary_message(day_obs, instrument):
         )
         missed = expected - len(log_visit_detector)
 
-    df = get_df_from_loki(
-        day_obs, instrument=instrument, match_string='|= "Timed out waiting for image"'
-    )
-    count_total = len(df)
-    df = df[(df["instrument"] == instrument) & (df["group"].isin(groups))].set_index(
-        ["group", "detector"]
+    df, count_total = _get_filtered_loki_df(
+        day_obs, instrument, groups, match_string='|= "Timed out waiting for image"'
     )
     if count_total > 0:
         counted += len(df)
         output_lines.append(
             f"- {len(df)} unexpected timeout ({count_total} total including raws not received)."
         )
-    df = get_df_from_loki(
+    df, count_total = _get_filtered_loki_df(
         day_obs,
-        instrument=instrument,
+        instrument,
+        groups,
         match_string='|= "MiddlewareInterface(_get_central_butler()"',
-    )
-    count_total = len(df)
-    df = df[(df["instrument"] == instrument) & (df["group"].isin(groups))].set_index(
-        ["group", "detector"]
     )
     if count_total > 0:
         counted += len(df)
         output_lines.append(
             f"- {len(df)} failure in instantiating MWI central butler connection ({count_total} total including raws not received)."
         )
-    df = get_df_from_loki(
-        day_obs, instrument=instrument, match_string='|= "prep_butler"'
-    )
-    count_total = len(df)
-    df = df[(df["instrument"] == instrument) & (df["group"].isin(groups))].set_index(
-        ["group", "detector"]
+    df, count_total = _get_filtered_loki_df(
+        day_obs, instrument, groups, match_string='|= "prep_butler"'
     )
     if count_total > 0:
         counted += len(df)
@@ -203,15 +192,12 @@ def make_summary_message(day_obs, instrument):
         if lines:
             output_lines.extend(lines)
 
-    df = get_df_from_loki(
+    df, count_total = _get_filtered_loki_df(
         day_obs,
-        instrument=instrument,
+        instrument,
+        groups,
         match_string='|= "loadDiaCatalogs" |= "cassandra"',
         match_string2='| json | level="ERROR"',
-    )
-    count_total = len(df)
-    df = df[(df["instrument"] == instrument) & (df["group"].isin(groups))].set_index(
-        ["group", "detector"]
     )
     if count_total > 0:
         output_lines.append(
@@ -227,14 +213,12 @@ def make_summary_message(day_obs, instrument):
         if lines:
             output_lines.extend(lines)
 
-    df = get_df_from_loki(
+    df, _ = _get_filtered_loki_df(
         day_obs,
-        instrument=instrument,
+        instrument,
+        groups,
         match_string='|= "Timed out connecting to raw microservice"',
         match_string2='| json | level="ERROR"',
-    )
-    df = df[(df["instrument"] == instrument) & (df["group"].isin(groups))].set_index(
-        ["group", "detector"]
     )
     if len(df) > 0:
         output_lines.append(f"- {len(df)} Timed out connecting to raw microservice.")
@@ -242,25 +226,21 @@ def make_summary_message(day_obs, instrument):
     output_lines.append(
         f"Number of expected processing: ({len(raw_exposures)}-{len(groups_without_events)}) raws*(189-{off_detector} detectors)={expected:d}. Missed {missed}"
     )
-    df = get_df_from_loki(
+    df, _ = _get_filtered_loki_df(
         day_obs,
-        instrument=instrument,
+        instrument,
+        groups,
         match_string='|= "RuntimeError: Unable to retrieve JSON sidecar"',
-    )
-    df = df[(df["instrument"] == instrument) & (df["group"].isin(groups))].set_index(
-        ["group", "detector"]
     )
     if not df.empty:
         counted += len(df)
         output_lines.append(f"- {len(df)} failure in retrieving json sidecar.")
 
-    df = get_df_from_loki(
+    df, _ = _get_filtered_loki_df(
         day_obs,
-        instrument=instrument,
+        instrument,
+        groups,
         match_string='|= "NoGoodPipelinesError: No main pipeline graph could be built"',
-    )
-    df = df[(df["instrument"] == instrument) & (df["group"].isin(groups))].set_index(
-        ["group", "detector"]
     )
     if not df.empty:
         counted += len(df)
@@ -380,14 +360,12 @@ def make_summary_message(day_obs, instrument):
         f"<https://usdf-rsp.slac.stanford.edu/times-square/github/lsst-sqre/times-square-usdf/prompt-processing/groups?date={day_obs}&instrument={instrument}&survey={survey}&mode=DEBUG&ts_hide_code=1|Timing plots>"
     )
 
-    df = get_df_from_loki(
+    df, _ = _get_filtered_loki_df(
         day_obs,
-        instrument=instrument,
+        instrument,
+        groups,
         match_string='|= "export_outputs"',
         match_string2='|= "Central repo export failed"',
-    )
-    df = df[(df["instrument"] == instrument) & (df["group"].isin(groups))].set_index(
-        ["group", "detector"]
     )
     if not df.empty:
         output_lines.append(f"- {len(df)} failure in export_outputs.")
@@ -406,15 +384,12 @@ def make_summary_message(day_obs, instrument):
         if lines:
             output_lines.extend(lines)
 
-    df = get_df_from_loki(
+    df, count_total = _get_filtered_loki_df(
         day_obs,
-        instrument=instrument,
+        instrument,
+        groups,
         match_string='|= "Signal SIGTERM detected, cleaning up and shutting down."',
         match_string2="",
-    )
-    count_total = len(df)
-    df = df[(df["instrument"] == instrument) & (df["group"].isin(groups))].set_index(
-        ["group", "detector"]
     )
     if count_total > 0:
         output_lines.append(
@@ -437,6 +412,42 @@ def count_datasets(butler, dataset_type, collection, **kwargs):
     except dafButler.MissingCollectionError:
         return 0
     return len(refs)
+
+
+def _get_filtered_loki_df(
+    day_obs, instrument, groups, match_string, match_string2='| json | level="ERROR"'
+):
+    """Query Loki and filter by instrument and group.
+
+    Parameters
+    ----------
+    day_obs : `str`
+        Observation day in ``YYYY-MM-DD`` format.
+    instrument : `str`
+        Instrument name.
+    groups : iterable
+        Groups to keep after filtering.
+    match_string, match_string2 : `str`, optional
+        Search strings passed to ``get_df_from_loki``.
+
+    Returns
+    -------
+    df : `pandas.DataFrame`
+        Filtered DataFrame indexed by group and detector.
+    count_total : `int`
+        Number of log records before filtering.
+    """
+    df = get_df_from_loki(
+        day_obs,
+        instrument=instrument,
+        match_string=match_string,
+        match_string2=match_string2,
+    )
+    count_total = len(df)
+    df = df[(df["instrument"] == instrument) & (df["group"].isin(groups))].set_index(
+        ["group", "detector"]
+    )
+    return df, count_total
 
 
 RECURRENT_ERRORS_BY_TASK = {
