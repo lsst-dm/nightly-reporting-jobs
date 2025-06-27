@@ -11,6 +11,13 @@ from queries import (
     get_df_from_loki,
 )
 
+# Total number of detectors per instrument
+INSTRUMENT_DETECTORS = {
+    "LSSTCam": 189,
+    "LSSTComCam": 9,
+    "LATISS": 1,
+}
+
 
 def make_summary_message(day_obs, instrument):
     """Make Prompt Processing summary message for a night
@@ -36,6 +43,11 @@ def make_summary_message(day_obs, instrument):
         get_next_visit_events(day_obs, instrument, survey)
     )
     total_visit_count = len(next_visits)
+
+    total_detectors = INSTRUMENT_DETECTORS.get(instrument, 0)
+    off_detector = 18 if instrument == "LSSTCam" else 0
+    active_detectors = total_detectors - off_detector
+    expected_preprocessing = total_visit_count * active_detectors
     canceled_list = next_visits.index.intersection(
         canceled_visits.set_index("groupId").index
     ).tolist()
@@ -66,6 +78,8 @@ def make_summary_message(day_obs, instrument):
     )
     groups = [r.group for r in raw_exposures]
     groups_without_events = set(groups) - set(next_visits.reset_index()["groupId"])
+
+    expected = (len(raw_exposures) - len(groups_without_events)) * active_detectors
 
     raw_counts = count_datasets(
         butler_nocollection,
@@ -135,22 +149,16 @@ def make_summary_message(day_obs, instrument):
     )
     missed = 0
     counted = 0
-    # LSSTCam number of active detector is hard-coded here.
-    if instrument == "LSSTCam":
-        off_detector = 18
-        df = get_df_from_loki(
-            day_obs,
-            instrument=instrument,
-            match_string='|= "Preprocessing pipeline successfully run."',
-            match_string2="",
-        )
-        output_lines.append(
-            f"Number of expected preprocessing: {total_visit_count} nextVisits*(189-{off_detector} detectors)={total_visit_count * (189-off_detector)}. Successful: {len(df)}. "
-        )
-        expected = (len(raw_exposures) - len(groups_without_events)) * (
-            189 - off_detector
-        )
-        missed = expected - len(log_visit_detector)
+    df = get_df_from_loki(
+        day_obs,
+        instrument=instrument,
+        match_string='|= "Preprocessing pipeline successfully run."',
+        match_string2="",
+    )
+    output_lines.append(
+        f"Number of expected preprocessing: {total_visit_count} nextVisits*({total_detectors}-{off_detector} detectors)={expected_preprocessing}. Successful: {len(df)}. "
+    )
+    missed = expected - len(log_visit_detector)
 
     df = get_df_from_loki(
         day_obs, instrument=instrument, match_string='|= "Timed out waiting for image"'
@@ -239,7 +247,7 @@ def make_summary_message(day_obs, instrument):
         output_lines.append(f"- {len(df)} Timed out connecting to raw microservice.")
 
     output_lines.append(
-        f"Number of expected processing: ({len(raw_exposures)}-{len(groups_without_events)}) raws*(189-{off_detector} detectors)={expected:d}. Missed {missed}"
+        f"Number of expected processing: ({len(raw_exposures)}-{len(groups_without_events)}) raws*({total_detectors}-{off_detector} detectors)={expected:d}. Missed {missed}"
     )
     df = get_df_from_loki(
         day_obs,
