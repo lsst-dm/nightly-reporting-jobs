@@ -27,7 +27,6 @@ spec:
             - name: butler-secrets
               mountPath: /opt/lsst/butler
               readOnly: false
-          volumes:
           containers:
           - name: run-nightly-reporting-scripts
             image: ghcr.io/lsst-dm/nightly-reporting:prod
