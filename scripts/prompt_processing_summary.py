@@ -2,7 +2,6 @@ import asyncio
 import sys
 import os
 import lsst.daf.butler as dafButler
-from dataclasses import dataclass
 from datetime import date, timedelta
 import requests
 
