@@ -125,26 +125,10 @@ def make_summary_message(day_obs, instrument):
         output_lines.append(f"No output collection was found for {day_obs:s}")
         return "\n".join(output_lines)
 
-    isr_counts = count_datasets(
+    isr_counts, sfm_counts, dia_counts = count_pipeline_outputs(
         butler_nocollection,
-        "isr_log",
-        f"{instrument}/prompt/output-{day_obs:s}/Isr/*",
-        where=f"exposure.science_program IN (survey)",
-        bind={"survey": survey},
-    )
-    sfm_counts = count_datasets(
-        butler_nocollection,
-        "isr_log",
-        f"{instrument}/prompt/output-{day_obs:s}/SingleFrame*",
-        where=f"exposure.science_program IN (survey)",
-        bind={"survey": survey},
-    )
-    dia_counts = count_datasets(
-        butler_nocollection,
-        "isr_log",
-        f"{instrument}/prompt/output-{day_obs:s}/ApPipe*",
-        where=f"exposure.science_program IN (survey)",
-        bind={"survey": survey},
+        f"{instrument}/prompt/output-{day_obs:s}",
+        survey,
     )
 
     b = dafButler.Butler(
@@ -435,6 +419,52 @@ def count_datasets(butler, dataset_type, collection, **kwargs):
     except dafButler.MissingCollectionError:
         return 0
     return len(refs)
+
+
+def count_pipeline_outputs(butler, collection, survey):
+    """Count pipeline log datasets for ISR, SingleFrame and ApPipe.
+
+    Parameters
+    ----------
+    butler : `lsst.daf.butler.Butler`
+        Butler instance pointing at the repo.
+    collection : `str`
+        Root output collection for the day.
+    survey : `str`
+        Imaging survey name used to filter datasets.
+
+    Returns
+    -------
+    isr_counts, sfm_counts, dia_counts: `int`
+        Counts of isr, singleFrame, and ApPipe pipeline runs based on the
+        number of datasets found in each output collection.
+    """
+
+    isr_counts = count_datasets(
+        butler,
+        "isr_log",
+        f"{collection}/Isr/*",
+        where=f"exposure.science_program IN (survey)",
+        bind={"survey": survey},
+    )
+
+    sfm_counts = count_datasets(
+        butler,
+        "isr_log",
+        f"{collection}/SingleFrame*",
+        where=f"exposure.science_program IN (survey)",
+        bind={"survey": survey},
+    )
+
+    dia_counts = count_datasets(
+        butler,
+        "isr_log",
+        f"{collection}/ApPipe*",
+        where=f"exposure.science_program IN (survey)",
+        bind={"survey": survey},
+    )
+
+    return isr_counts, sfm_counts, dia_counts
 
 
 def _get_filtered_loki_df(
