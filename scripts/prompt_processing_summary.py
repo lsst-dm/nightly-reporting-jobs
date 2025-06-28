@@ -160,28 +160,23 @@ def make_summary_message(day_obs, instrument):
     )
     missed = expected - len(log_visit_detector)
 
-    df, count_total = _get_filtered_loki_df(
-        day_obs, instrument, groups, match_string='|= "Timed out waiting for image"'
-    )
+    errors = collect_loki_errors(day_obs, instrument, groups)
+
+    df, count_total = errors["timeout"]
     if count_total > 0:
         counted += len(df)
         output_lines.append(
             f"- {len(df)} unexpected timeout ({count_total} total including raws not received)."
         )
-    df, count_total = _get_filtered_loki_df(
-        day_obs,
-        instrument,
-        groups,
-        match_string='|= "MiddlewareInterface(_get_central_butler()"',
-    )
+
+    df, count_total = errors["central_butler"]
     if count_total > 0:
         counted += len(df)
         output_lines.append(
             f"- {len(df)} failure in instantiating MWI central butler connection ({count_total} total including raws not received)."
         )
-    df, count_total = _get_filtered_loki_df(
-        day_obs, instrument, groups, match_string='|= "prep_butler"'
-    )
+
+    df, count_total = errors["prep_butler"]
     if count_total > 0:
         counted += len(df)
         output_lines.append(
@@ -199,13 +194,7 @@ def make_summary_message(day_obs, instrument):
         if lines:
             output_lines.extend(lines)
 
-    df, count_total = _get_filtered_loki_df(
-        day_obs,
-        instrument,
-        groups,
-        match_string='|= "loadDiaCatalogs" |= "cassandra"',
-        match_string2='| json | level="ERROR"',
-    )
+    df, count_total = errors["load_dia_catalogs"]
     if count_total > 0:
         output_lines.append(
             f"- {len(df)} loadDiaCatalogs errors from cassandra ({count_total} total including raws not received)."
@@ -220,35 +209,20 @@ def make_summary_message(day_obs, instrument):
         if lines:
             output_lines.extend(lines)
 
-    df, _ = _get_filtered_loki_df(
-        day_obs,
-        instrument,
-        groups,
-        match_string='|= "Timed out connecting to raw microservice"',
-        match_string2='| json | level="ERROR"',
-    )
+    df, _ = errors["raw_timeout"]
     if len(df) > 0:
         output_lines.append(f"- {len(df)} Timed out connecting to raw microservice.")
 
     output_lines.append(
         f"Number of expected processing: ({len(raw_exposures)}-{len(groups_without_events)}) raws*({total_detectors}-{off_detector} detectors)={expected:d}. Missed {missed}"
     )
-    df, _ = _get_filtered_loki_df(
-        day_obs,
-        instrument,
-        groups,
-        match_string='|= "RuntimeError: Unable to retrieve JSON sidecar"',
-    )
+
+    df, _ = errors["json_sidecar"]
     if not df.empty:
         counted += len(df)
         output_lines.append(f"- {len(df)} failure in retrieving json sidecar.")
 
-    df, _ = _get_filtered_loki_df(
-        day_obs,
-        instrument,
-        groups,
-        match_string='|= "NoGoodPipelinesError: No main pipeline graph could be built"',
-    )
+    df, _ = errors["no_pipeline"]
     if not df.empty:
         counted += len(df)
         output_lines.append(
@@ -367,13 +341,7 @@ def make_summary_message(day_obs, instrument):
         f"<https://usdf-rsp.slac.stanford.edu/times-square/github/lsst-sqre/times-square-usdf/prompt-processing/groups?date={day_obs}&instrument={instrument}&survey={survey}&mode=DEBUG&ts_hide_code=1|Timing plots>"
     )
 
-    df, _ = _get_filtered_loki_df(
-        day_obs,
-        instrument,
-        groups,
-        match_string='|= "export_outputs"',
-        match_string2='|= "Central repo export failed"',
-    )
+    df, _ = errors["export_outputs"]
     if not df.empty:
         output_lines.append(f"- {len(df)} failure in export_outputs.")
         output_lines.append(f"  (Partial export may be incorrectly counted as success)")
@@ -391,13 +359,7 @@ def make_summary_message(day_obs, instrument):
         if lines:
             output_lines.extend(lines)
 
-    df, count_total = _get_filtered_loki_df(
-        day_obs,
-        instrument,
-        groups,
-        match_string='|= "Signal SIGTERM detected, cleaning up and shutting down."',
-        match_string2="",
-    )
+    df, count_total = errors["sigterm"]
     if count_total > 0:
         output_lines.append(
             f"- At least {len(df)} had SIGTERM ({count_total} total including raws not received)."
@@ -465,6 +427,69 @@ def count_pipeline_outputs(butler, collection, survey):
     )
 
     return isr_counts, sfm_counts, dia_counts
+
+
+def collect_loki_errors(day_obs, instrument, groups):
+    """Gather Loki error statistics for an observation day.
+
+    Parameters
+    ----------
+    day_obs : `str`
+        Observation day in ``YYYY-MM-DD`` format.
+    instrument : `str`
+        Instrument name.
+    groups : iterable
+        Groups to keep after filtering.
+
+    Returns
+    -------
+    errors : `dict`
+        Mapping from error category name to a tuple of ``(DataFrame, total)``
+        returned by ``_get_filtered_loki_df``.
+    """
+
+    queries = {
+        "timeout": {"match_string": '|= "Timed out waiting for image"'},
+        "central_butler": {
+            "match_string": '|= "MiddlewareInterface(_get_central_butler()"'
+        },
+        "prep_butler": {"match_string": '|= "prep_butler"'},
+        "load_dia_catalogs": {
+            "match_string": '|= "loadDiaCatalogs" |= "cassandra"',
+            "match_string2": '| json | level="ERROR"',
+        },
+        "raw_timeout": {
+            "match_string": '|= "Timed out connecting to raw microservice"',
+            "match_string2": '| json | level="ERROR"',
+        },
+        "json_sidecar": {
+            "match_string": '|= "RuntimeError: Unable to retrieve JSON sidecar"'
+        },
+        "no_pipeline": {
+            "match_string": '|= "NoGoodPipelinesError: No main pipeline graph could be built"'
+        },
+        "export_outputs": {
+            "match_string": '|= "export_outputs"',
+            "match_string2": '|= "Central repo export failed"',
+        },
+        "sigterm": {
+            "match_string": '|= "Signal SIGTERM detected, cleaning up and shutting down."',
+            "match_string2": "",
+        },
+    }
+
+    errors = {}
+    for name, params in queries.items():
+        df, total = _get_filtered_loki_df(
+            day_obs,
+            instrument,
+            groups,
+            params["match_string"],
+            params.get("match_string2", '| json | level="ERROR"'),
+        )
+        errors[name] = (df, total)
+
+    return errors
 
 
 def _get_filtered_loki_df(
