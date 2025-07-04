@@ -562,6 +562,7 @@ RECURRENT_ERRORS_BY_TASK = {
         "OperationTimedOut",  # cassandra.OperationTimedOut
         "Control connection failed to connect",  # cassandra.cluster.NoHostAvailable
         "Error from server",
+        "Broker transport failure",
     ],
 }
 
