@@ -132,9 +132,9 @@ def query_loki(day_obs, container_name, search_string):
 
     result = subprocess.run(command, capture_output=True, text=True)
     if result.returncode != 0:
-        _log.error("Loki query failed")
-        _log.error(result.stderr)
-        return
+        error_msg = f"Loki query failed: {result.stderr.strip()}"
+        _log.error(error_msg)
+        raise RuntimeError(error_msg)
 
     return result.stdout
 
@@ -186,7 +186,7 @@ def get_df_from_loki(
     match_string="",
     match_string2='|= "Processing failed"',
 ):
-    """Get the IDs of the timed out cases.
+    """Query Loki and return matching log entries as a DataFrame.
 
     Parameters
     ----------
@@ -195,9 +195,9 @@ def get_df_from_loki(
     instrument : `str`
         Instrument name.
     match_string : `str`
-        Lok stream selector for Loki query.
+        Loki stream selector for Loki query.
     match_string2 : `str`
-        Lok stream selector for Loki query.
+        Additional search/filter expression for the Loki query.
 
     Returns
     -------

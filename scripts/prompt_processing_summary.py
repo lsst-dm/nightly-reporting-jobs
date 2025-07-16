@@ -2,7 +2,6 @@ import asyncio
 import sys
 import os
 import lsst.daf.butler as dafButler
-from dataclasses import dataclass
 from datetime import date, timedelta
 import requests
 
@@ -11,6 +10,30 @@ from queries import (
     get_no_work_count_from_loki,
     get_df_from_loki,
 )
+
+# Instrument configuration
+#
+# ``detectors`` -- total number of detectors for the instrument
+# ``off``       -- number of detectors that are known to be off and
+#                  therefore should not be counted in expected totals
+# ``survey``    -- survey block associated with the instrument
+INSTRUMENT_CONFIG = {
+    "LSSTCam": {
+        "detectors": 189,
+        "off": 18,
+        "survey": "BLOCK-365",
+    },
+    "LSSTComCam": {
+        "detectors": 9,
+        "off": 0,
+        "survey": "BLOCK-320",
+    },
+    "LATISS": {
+        "detectors": 1,
+        "off": 0,
+        "survey": "BLOCK-306",
+    },
+}
 
 
 def make_summary_message(day_obs, instrument):
@@ -27,16 +50,20 @@ def make_summary_message(day_obs, instrument):
     day_obs_int = int(day_obs.replace("-", ""))
 
     butler_alias = "embargo"
-    if instrument == "LATISS":
-        survey = "BLOCK-306"
-    elif instrument == "LSSTComCam":
-        survey = "BLOCK-320"
-    else:
-        survey = "BLOCK-365"
+    config = INSTRUMENT_CONFIG.get(instrument)
+    if not config:
+        raise KeyError(f"Unknown instrument: {instrument}")
+
+    survey = config["survey"]
     next_visits, canceled_visits = asyncio.run(
         get_next_visit_events(day_obs, instrument, survey)
     )
     total_visit_count = len(next_visits)
+
+    total_detectors = config["detectors"]
+    off_detector = config["off"]
+    active_detectors = total_detectors - off_detector
+    expected_preprocessing = total_visit_count * active_detectors
     canceled_list = next_visits.index.intersection(
         canceled_visits.set_index("groupId").index
     ).tolist()
@@ -68,12 +95,14 @@ def make_summary_message(day_obs, instrument):
     groups = [r.group for r in raw_exposures]
     groups_without_events = set(groups) - set(next_visits.reset_index()["groupId"])
 
+    expected = (len(raw_exposures) - len(groups_without_events)) * active_detectors
+
     raw_counts = count_datasets(
         butler_nocollection,
         "raw",
         f"{instrument}/raw/all",
         instrument=instrument,
-        where=f"day_obs=day_obs_int AND exposure.science_program IN (survey) AND detector < 189",
+        where=f"day_obs=day_obs_int AND exposure.science_program IN (survey) AND detector < {total_detectors}",
         bind={"day_obs_int": day_obs_int, "survey": survey},
     )
     output_lines.append(
@@ -82,7 +111,7 @@ def make_summary_message(day_obs, instrument):
     )
     if groups_without_events:
         output_lines.append(
-            f"{len(groups_without_events)} raws had no nextVisit: {",".join(groups_without_events)}"
+            f"{len(groups_without_events)} raws had no nextVisit: {', '.join(groups_without_events)}"
         )
     if len(raw_exposures) == 0:
         return "\n".join(output_lines)
@@ -96,26 +125,10 @@ def make_summary_message(day_obs, instrument):
         output_lines.append(f"No output collection was found for {day_obs:s}")
         return "\n".join(output_lines)
 
-    isr_counts = count_datasets(
+    isr_counts, sfm_counts, dia_counts = count_pipeline_outputs(
         butler_nocollection,
-        "isr_log",
-        f"{instrument}/prompt/output-{day_obs:s}/Isr/*",
-        where=f"exposure.science_program IN (survey)",
-        bind={"survey": survey},
-    )
-    sfm_counts = count_datasets(
-        butler_nocollection,
-        "isr_log",
-        f"{instrument}/prompt/output-{day_obs:s}/SingleFrame*",
-        where=f"exposure.science_program IN (survey)",
-        bind={"survey": survey},
-    )
-    dia_counts = count_datasets(
-        butler_nocollection,
-        "isr_log",
-        f"{instrument}/prompt/output-{day_obs:s}/ApPipe*",
-        where=f"exposure.science_program IN (survey)",
-        bind={"survey": survey},
+        f"{instrument}/prompt/output-{day_obs:s}",
+        survey,
     )
 
     b = dafButler.Butler(
@@ -136,56 +149,34 @@ def make_summary_message(day_obs, instrument):
     )
     missed = 0
     counted = 0
-    # LSSTCam number of active detector is hard-coded here.
-    if instrument == "LSSTCam":
-        off_detector = 18
-        df = get_df_from_loki(
-            day_obs,
-            instrument=instrument,
-            match_string='|= "Preprocessing pipeline successfully run."',
-            match_string2="",
-        )
-        output_lines.append(
-            f"Number of expected preprocessing: {total_visit_count} nextVisits*(189-{off_detector} detectors)={total_visit_count * (189-off_detector)}. Successful: {len(df)}. "
-        )
-        expected = (len(raw_exposures) - len(groups_without_events)) * (
-            189 - off_detector
-        )
-        missed = expected - len(log_visit_detector)
-
     df = get_df_from_loki(
-        day_obs, instrument=instrument, match_string='|= "Timed out waiting for image"'
+        day_obs,
+        instrument=instrument,
+        match_string='|= "Preprocessing pipeline successfully run."',
+        match_string2="",
     )
-    count_total = len(df)
-    df = df[(df["instrument"] == instrument) & (df["group"].isin(groups))].set_index(
-        ["group", "detector"]
+    output_lines.append(
+        f"Number of expected preprocessing: {total_visit_count} nextVisits*({total_detectors}-{off_detector} detectors)={expected_preprocessing}. Successful: {len(df)}. "
     )
+    missed = expected - len(log_visit_detector)
+
+    errors = collect_loki_errors(day_obs, instrument, groups)
+
+    df, count_total = errors["timeout"]
     if count_total > 0:
         counted += len(df)
         output_lines.append(
             f"- {len(df)} unexpected timeout ({count_total} total including raws not received)."
         )
-    df = get_df_from_loki(
-        day_obs,
-        instrument=instrument,
-        match_string='|= "MiddlewareInterface(_get_central_butler()"',
-    )
-    count_total = len(df)
-    df = df[(df["instrument"] == instrument) & (df["group"].isin(groups))].set_index(
-        ["group", "detector"]
-    )
+
+    df, count_total = errors["mwi_connection"]
     if count_total > 0:
         counted += len(df)
         output_lines.append(
             f"- {len(df)} failure in instantiating MWI central butler connection ({count_total} total including raws not received)."
         )
-    df = get_df_from_loki(
-        day_obs, instrument=instrument, match_string='|= "prep_butler"'
-    )
-    count_total = len(df)
-    df = df[(df["instrument"] == instrument) & (df["group"].isin(groups))].set_index(
-        ["group", "detector"]
-    )
+
+    df, count_total = errors["prep_butler"]
     if count_total > 0:
         counted += len(df)
         output_lines.append(
@@ -203,16 +194,7 @@ def make_summary_message(day_obs, instrument):
         if lines:
             output_lines.extend(lines)
 
-    df = get_df_from_loki(
-        day_obs,
-        instrument=instrument,
-        match_string='|= "loadDiaCatalogs" |= "cassandra"',
-        match_string2='| json | level="ERROR"',
-    )
-    count_total = len(df)
-    df = df[(df["instrument"] == instrument) & (df["group"].isin(groups))].set_index(
-        ["group", "detector"]
-    )
+    df, count_total = errors["cassandra"]
     if count_total > 0:
         output_lines.append(
             f"- {len(df)} loadDiaCatalogs errors from cassandra ({count_total} total including raws not received)."
@@ -227,41 +209,20 @@ def make_summary_message(day_obs, instrument):
         if lines:
             output_lines.extend(lines)
 
-    df = get_df_from_loki(
-        day_obs,
-        instrument=instrument,
-        match_string='|= "Timed out connecting to raw microservice"',
-        match_string2='| json | level="ERROR"',
-    )
-    df = df[(df["instrument"] == instrument) & (df["group"].isin(groups))].set_index(
-        ["group", "detector"]
-    )
+    df, _ = errors["microservice_timeout"]
     if len(df) > 0:
         output_lines.append(f"- {len(df)} Timed out connecting to raw microservice.")
 
     output_lines.append(
-        f"Number of expected processing: ({len(raw_exposures)}-{len(groups_without_events)}) raws*(189-{off_detector} detectors)={expected:d}. Missed {missed}"
+        f"Number of expected processing: ({len(raw_exposures)}-{len(groups_without_events)}) raws*({total_detectors}-{off_detector} detectors)={expected:d}. Missed {missed}"
     )
-    df = get_df_from_loki(
-        day_obs,
-        instrument=instrument,
-        match_string='|= "RuntimeError: Unable to retrieve JSON sidecar"',
-    )
-    df = df[(df["instrument"] == instrument) & (df["group"].isin(groups))].set_index(
-        ["group", "detector"]
-    )
+
+    df, _ = errors["json_sidecar"]
     if not df.empty:
         counted += len(df)
         output_lines.append(f"- {len(df)} failure in retrieving json sidecar.")
 
-    df = get_df_from_loki(
-        day_obs,
-        instrument=instrument,
-        match_string='|= "NoGoodPipelinesError: No main pipeline graph could be built"',
-    )
-    df = df[(df["instrument"] == instrument) & (df["group"].isin(groups))].set_index(
-        ["group", "detector"]
-    )
+    df, _ = errors["no_pipeline"]
     if not df.empty:
         counted += len(df)
         output_lines.append(
@@ -380,15 +341,7 @@ def make_summary_message(day_obs, instrument):
         f"<https://usdf-rsp.slac.stanford.edu/times-square/github/lsst-sqre/times-square-usdf/prompt-processing/groups?date={day_obs}&instrument={instrument}&survey={survey}&mode=DEBUG&ts_hide_code=1|Timing plots>"
     )
 
-    df = get_df_from_loki(
-        day_obs,
-        instrument=instrument,
-        match_string='|= "export_outputs"',
-        match_string2='|= "Central repo export failed"',
-    )
-    df = df[(df["instrument"] == instrument) & (df["group"].isin(groups))].set_index(
-        ["group", "detector"]
-    )
+    df, _ = errors["export_outputs"]
     if not df.empty:
         output_lines.append(f"- {len(df)} failure in export_outputs.")
         output_lines.append(f"  (Partial export may be incorrectly counted as success)")
@@ -406,16 +359,7 @@ def make_summary_message(day_obs, instrument):
         if lines:
             output_lines.extend(lines)
 
-    df = get_df_from_loki(
-        day_obs,
-        instrument=instrument,
-        match_string='|= "Signal SIGTERM detected, cleaning up and shutting down."',
-        match_string2="",
-    )
-    count_total = len(df)
-    df = df[(df["instrument"] == instrument) & (df["group"].isin(groups))].set_index(
-        ["group", "detector"]
-    )
+    df, count_total = errors["sigterm"]
     if count_total > 0:
         output_lines.append(
             f"- At least {len(df)} had SIGTERM ({count_total} total including raws not received)."
@@ -437,6 +381,160 @@ def count_datasets(butler, dataset_type, collection, **kwargs):
     except dafButler.MissingCollectionError:
         return 0
     return len(refs)
+
+
+def count_pipeline_outputs(butler, collection, survey):
+    """Count pipeline log datasets for ISR, SingleFrame and ApPipe.
+
+    Parameters
+    ----------
+    butler : `lsst.daf.butler.Butler`
+        Butler instance pointing at the repo.
+    collection : `str`
+        Root output collection for the day.
+    survey : `str`
+        Imaging survey name used to filter datasets.
+
+    Returns
+    -------
+    isr_counts, sfm_counts, dia_counts: `int`
+        Counts of isr, singleFrame, and ApPipe pipeline runs based on the
+        number of datasets found in each output collection.
+    """
+
+    isr_counts = count_datasets(
+        butler,
+        "isr_log",
+        f"{collection}/Isr/*",
+        where=f"exposure.science_program IN (survey)",
+        bind={"survey": survey},
+    )
+
+    sfm_counts = count_datasets(
+        butler,
+        "isr_log",
+        f"{collection}/SingleFrame*",
+        where=f"exposure.science_program IN (survey)",
+        bind={"survey": survey},
+    )
+
+    dia_counts = count_datasets(
+        butler,
+        "isr_log",
+        f"{collection}/ApPipe*",
+        where=f"exposure.science_program IN (survey)",
+        bind={"survey": survey},
+    )
+
+    return isr_counts, sfm_counts, dia_counts
+
+
+def collect_loki_errors(day_obs, instrument, groups):
+    """Gather Loki error statistics for an observation day.
+
+    Parameters
+    ----------
+    day_obs : `str`
+        Observation day in ``YYYY-MM-DD`` format.
+    instrument : `str`
+        Instrument name.
+    groups : iterable
+        Groups to keep after filtering.
+
+    Returns
+    -------
+    errors : `dict`
+        Mapping from error category name to a tuple of ``(DataFrame, total)``
+        returned by ``_get_filtered_loki_df``.
+    """
+
+    queries = {
+        "timeout": {
+            "match_string": '|= "Timed out waiting for image"',
+            "match_string2": '|= "Processing failed"',
+        },
+        "mwi_connection": {
+            "match_string": '|= "MiddlewareInterface(_get_central_butler()"',
+            "match_string2": '|= "Processing failed"',
+        },
+        "prep_butler": {
+            "match_string": '|= "prep_butler"',
+            "match_string2": '|= "Processing failed"',
+        },
+        "cassandra": {
+            "match_string": '|= "loadDiaCatalogs" |= "cassandra"',
+            "match_string2": '| json | level="ERROR"',
+        },
+        "microservice_timeout": {
+            "match_string": '|= "Timed out connecting to raw microservice"',
+            "match_string2": '| json | level="ERROR"',
+        },
+        "json_sidecar": {
+            "match_string": '|= "RuntimeError: Unable to retrieve JSON sidecar"',
+            "match_string2": '|= "Processing failed"',
+        },
+        "no_pipeline": {
+            "match_string": '|= "NoGoodPipelinesError: No main pipeline graph could be built"',
+            "match_string2": '|= "Processing failed"',
+        },
+        "export_outputs": {
+            "match_string": '|= "export_outputs"',
+            "match_string2": '|= "Central repo export failed"',
+        },
+        "sigterm": {
+            "match_string": '|= "Signal SIGTERM detected, cleaning up and shutting down."',
+            "match_string2": "",
+        },
+    }
+
+    errors = {}
+    for name, params in queries.items():
+        df, total = _get_filtered_loki_df(
+            day_obs,
+            instrument,
+            groups,
+            params["match_string"],
+            params.get("match_string2", '| json | level="ERROR"'),
+        )
+        errors[name] = (df, total)
+
+    return errors
+
+
+def _get_filtered_loki_df(
+    day_obs, instrument, groups, match_string, match_string2='|= "Processing failed"'
+):
+    """Query Loki and filter by instrument and group.
+
+    Parameters
+    ----------
+    day_obs : `str`
+        Observation day in ``YYYY-MM-DD`` format.
+    instrument : `str`
+        Instrument name.
+    groups : iterable
+        Groups to keep after filtering.
+    match_string, match_string2 : `str`, optional
+        Search strings passed to ``get_df_from_loki``.
+
+    Returns
+    -------
+    df : `pandas.DataFrame`
+        Filtered DataFrame indexed by group and detector.
+    count_total : `int`
+        Number of log records before filtering.
+    """
+    df = get_df_from_loki(
+        day_obs,
+        instrument=instrument,
+        match_string=match_string,
+        match_string2=match_string2,
+    )
+    count_total = len(df)
+    df = df[(df["instrument"] == instrument) & (df["group"].isin(groups))].set_index(
+        ["group", "detector"]
+    )
+    return df, count_total
 
 
 RECURRENT_ERRORS_BY_TASK = {
