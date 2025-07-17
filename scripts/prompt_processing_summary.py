@@ -479,7 +479,7 @@ def collect_loki_errors(day_obs, instrument, groups):
         },
         "export_outputs": {
             "match_string": '|= "export_outputs"',
-            "match_string2": '|= "Central repo export failed"',
+            "match_string2": '|= "failed" | json | level="ERROR"',
         },
         "sigterm": {
             "match_string": '|= "Signal SIGTERM detected, cleaning up and shutting down."',
