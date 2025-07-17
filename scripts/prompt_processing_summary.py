@@ -342,6 +342,13 @@ def make_summary_message(day_obs, instrument):
             count_recurrent_pipeline_errors(
                 b,
                 f"visit.science_program='{survey}'AND instrument='{instrument}'",
+                "detectAndMeasureDiaSource",
+            )
+        )
+        output_lines.extend(
+            count_recurrent_pipeline_errors(
+                b,
+                f"visit.science_program='{survey}'AND instrument='{instrument}'",
                 "associateApdb",
             )
         )
@@ -591,11 +598,17 @@ RECURRENT_ERRORS_BY_TASK = {
         "No valid points to fit. Variance is likely zero",
     ],
     "subtractImages": [
+        "Exception NoKernelCandidatesError",
         "RuntimeError: Cannot compute PSF matching kernel: too few sources selected",
         "RuntimeError: No good PSF candidates to pass to PSFEx",
+        "RuntimeError: No good kernel candidates available",
         "RuntimeError: No objects passed our cuts for consideration as psf stars",
         "Unable to determine kernel sum; 0 candidates",
         "Could not compute LinearTransform inverse",
+    ],
+    "detectAndMeasureDiaSource": [
+        "Exception BadSubtractionError",
+        "ip.diffim.detectAndMeasure.NoDiaSourcesError",
     ],
     "associateApdb": [
         "OperationTimedOut",  # cassandra.OperationTimedOut
