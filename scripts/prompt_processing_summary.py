@@ -209,6 +209,10 @@ def make_summary_message(day_obs, instrument):
         if lines:
             output_lines.extend(lines)
 
+    df, count_total = errors["mpSkyEphemerisQuery"]
+    if count_total > 0:
+        output_lines.append(f"- {len(df)} failed mpSkyEphemerisQuery.")
+
     df, _ = errors["microservice_timeout"]
     if len(df) > 0:
         output_lines.append(f"- {len(df)} Timed out connecting to raw microservice.")
@@ -221,6 +225,13 @@ def make_summary_message(day_obs, instrument):
     if not df.empty:
         counted += len(df)
         output_lines.append(f"- {len(df)} failure in retrieving json sidecar.")
+
+    df, _ = errors["unprocessable"]
+    if not df.empty:
+        counted += len(df)
+        output_lines.append(
+            f"- {len(df)} rejected as unprocessable, e.g. sky rotation mismatch or missing md."
+        )
 
     df, _ = errors["no_pipeline"]
     if not df.empty:
@@ -359,6 +370,10 @@ def make_summary_message(day_obs, instrument):
         if lines:
             output_lines.extend(lines)
 
+    df, count_total = errors["sasquatch"]
+    if count_total > 0:
+        output_lines.append(f"- {len(df)} SasquatchDispatchFailure.")
+
     df, count_total = errors["sigterm"]
     if count_total > 0:
         output_lines.append(
@@ -465,12 +480,20 @@ def collect_loki_errors(day_obs, instrument, groups):
             "match_string": '|= "loadDiaCatalogs" |= "cassandra"',
             "match_string2": '| json | level="ERROR"',
         },
+        "mpSkyEphemerisQuery": {
+            "match_string": '|= "mpSkyEphemerisQuery" |= "Traceback"',
+            "match_string2": '| json | level="ERROR"',
+        },
         "microservice_timeout": {
             "match_string": '|= "Timed out connecting to raw microservice"',
             "match_string2": '| json | level="ERROR"',
         },
         "json_sidecar": {
             "match_string": '|= "RuntimeError: Unable to retrieve JSON sidecar"',
+            "match_string2": '|= "Processing failed"',
+        },
+        "unprocessable": {
+            "match_string": '|= "RuntimeError: All images rejected as unprocessable"',
             "match_string2": '|= "Processing failed"',
         },
         "no_pipeline": {
@@ -484,6 +507,10 @@ def collect_loki_errors(day_obs, instrument, groups):
         "sigterm": {
             "match_string": '|= "Signal SIGTERM detected, cleaning up and shutting down."',
             "match_string2": "",
+        },
+        "sasquatch": {
+            "match_string": '|= "SasquatchDispatchFailure" |= "Failed to upload" |= "metric"',
+            "match_string2": ' | json | level="ERROR"',
         },
     }
 
