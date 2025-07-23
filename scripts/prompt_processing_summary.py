@@ -189,6 +189,8 @@ def make_summary_message(day_obs, instrument):
                 "SSL SYSCALL error: EOF detected",
                 "SSL connection has been closed unexpectedly",
                 "server closed the connection unexpectedly",
+                "MissingCollectionError",
+                "s3transfer.exceptions.RetriesExceededError",
             ],
         )
         if lines:
@@ -365,6 +367,7 @@ def make_summary_message(day_obs, instrument):
                 "SSL connection has been closed unexpectedly",
                 "server closed the connection unexpectedly",
                 "psycopg2.errors.UniqueViolation",
+                "s3transfer.exceptions.RetriesExceededError",
             ],
         )
         if lines:
