@@ -91,7 +91,9 @@ async def get_next_visit_events(day_obs, instrument, survey=None):
 
     if df.empty:
         _log.info(f"No events on {day_obs}")
-        return pandas.DataFrame()
+        return pandas.DataFrame(
+            columns=["instrument", "survey", "groupId", "filters"]
+        ), pandas.DataFrame(columns=["instrument", "survey", "groupId", "filters"])
 
     if survey:
         # Only select on-sky exposures from the selected survey
