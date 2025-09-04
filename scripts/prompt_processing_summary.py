@@ -316,7 +316,7 @@ def make_summary_message(day_obs, instrument):
     )
     count_no_apdb = count_no_work1 + count_no_work2
     output_lines.append(
-        "- associateApdb: {:d} attempts with outputs, {:d}+{:d}+{:d}={:d} passed, {:d} failed".format(
+        "- associateApdb: {:d} attempts with outputs, {:d}+{:d}(no-work)+{:d}(no-work)={:d} passed, {:d} failed".format(
             dia_counts,
             len(dia_visit_detector),
             count_no_work1,
