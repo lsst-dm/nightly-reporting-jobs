@@ -20,7 +20,7 @@ from queries import (
 INSTRUMENT_CONFIG = {
     "LSSTCam": {
         "detectors": 189,
-        "off": 18,
+        "off": 17,
         "survey": "BLOCK-365",
     },
     "LSSTComCam": {
@@ -189,6 +189,8 @@ def make_summary_message(day_obs, instrument):
                 "SSL SYSCALL error: EOF detected",
                 "SSL connection has been closed unexpectedly",
                 "server closed the connection unexpectedly",
+                "MissingCollectionError",
+                "s3transfer.exceptions.RetriesExceededError",
             ],
         )
         if lines:
@@ -209,6 +211,10 @@ def make_summary_message(day_obs, instrument):
         if lines:
             output_lines.extend(lines)
 
+    df, count_total = errors["mpSkyEphemerisQuery"]
+    if count_total > 0:
+        output_lines.append(f"- {len(df)} failed mpSkyEphemerisQuery.")
+
     df, _ = errors["microservice_timeout"]
     if len(df) > 0:
         output_lines.append(f"- {len(df)} Timed out connecting to raw microservice.")
@@ -221,6 +227,13 @@ def make_summary_message(day_obs, instrument):
     if not df.empty:
         counted += len(df)
         output_lines.append(f"- {len(df)} failure in retrieving json sidecar.")
+
+    df, _ = errors["unprocessable"]
+    if not df.empty:
+        counted += len(df)
+        output_lines.append(
+            f"- {len(df)} rejected as unprocessable, e.g. sky rotation mismatch or missing md."
+        )
 
     df, _ = errors["no_pipeline"]
     if not df.empty:
@@ -303,7 +316,7 @@ def make_summary_message(day_obs, instrument):
     )
     count_no_apdb = count_no_work1 + count_no_work2
     output_lines.append(
-        "- associateApdb: {:d} attempts with outputs, {:d}+{:d}+{:d}={:d} passed, {:d} failed".format(
+        "- associateApdb: {:d} attempts with outputs, {:d}+{:d}(no-work)+{:d}(no-work)={:d} passed, {:d} failed".format(
             dia_counts,
             len(dia_visit_detector),
             count_no_work1,
@@ -323,6 +336,13 @@ def make_summary_message(day_obs, instrument):
                 b,
                 f"visit.science_program='{survey}'AND instrument='{instrument}'",
                 "subtractImages",
+            )
+        )
+        output_lines.extend(
+            count_recurrent_pipeline_errors(
+                b,
+                f"visit.science_program='{survey}'AND instrument='{instrument}'",
+                "detectAndMeasureDiaSource",
             )
         )
         output_lines.extend(
@@ -354,10 +374,15 @@ def make_summary_message(day_obs, instrument):
                 "SSL connection has been closed unexpectedly",
                 "server closed the connection unexpectedly",
                 "psycopg2.errors.UniqueViolation",
+                "s3transfer.exceptions.RetriesExceededError",
             ],
         )
         if lines:
             output_lines.extend(lines)
+
+    df, count_total = errors["sasquatch"]
+    if count_total > 0:
+        output_lines.append(f"- {len(df)} SasquatchDispatchFailure.")
 
     df, count_total = errors["sigterm"]
     if count_total > 0:
@@ -465,6 +490,10 @@ def collect_loki_errors(day_obs, instrument, groups):
             "match_string": '|= "loadDiaCatalogs" |= "cassandra"',
             "match_string2": '| json | level="ERROR"',
         },
+        "mpSkyEphemerisQuery": {
+            "match_string": '|= "mpSkyEphemerisQuery" |= "Traceback"',
+            "match_string2": '| json | level="ERROR"',
+        },
         "microservice_timeout": {
             "match_string": '|= "Timed out connecting to raw microservice"',
             "match_string2": '| json | level="ERROR"',
@@ -473,17 +502,25 @@ def collect_loki_errors(day_obs, instrument, groups):
             "match_string": '|= "RuntimeError: Unable to retrieve JSON sidecar"',
             "match_string2": '|= "Processing failed"',
         },
+        "unprocessable": {
+            "match_string": '|= "RuntimeError: All images rejected as unprocessable"',
+            "match_string2": '|= "Processing failed"',
+        },
         "no_pipeline": {
             "match_string": '|= "NoGoodPipelinesError: No main pipeline graph could be built"',
             "match_string2": '|= "Processing failed"',
         },
         "export_outputs": {
             "match_string": '|= "export_outputs"',
-            "match_string2": '|= "Central repo export failed"',
+            "match_string2": '|= "failed" | json | level="ERROR"',
         },
         "sigterm": {
             "match_string": '|= "Signal SIGTERM detected, cleaning up and shutting down."',
             "match_string2": "",
+        },
+        "sasquatch": {
+            "match_string": '|= "SasquatchDispatchFailure" |= "Failed to upload" |= "metric"',
+            "match_string2": ' | json | level="ERROR"',
         },
     }
 
@@ -561,11 +598,17 @@ RECURRENT_ERRORS_BY_TASK = {
         "No valid points to fit. Variance is likely zero",
     ],
     "subtractImages": [
+        "Exception NoKernelCandidatesError",
         "RuntimeError: Cannot compute PSF matching kernel: too few sources selected",
         "RuntimeError: No good PSF candidates to pass to PSFEx",
+        "RuntimeError: No good kernel candidates available",
         "RuntimeError: No objects passed our cuts for consideration as psf stars",
         "Unable to determine kernel sum; 0 candidates",
         "Could not compute LinearTransform inverse",
+    ],
+    "detectAndMeasureDiaSource": [
+        "Exception BadSubtractionError",
+        "ip.diffim.detectAndMeasure.NoDiaSourcesError",
     ],
     "associateApdb": [
         "OperationTimedOut",  # cassandra.OperationTimedOut
