@@ -319,7 +319,6 @@ def parse_loki_results(results):
         inner = json.loads(outer["line"])
         rows.append(inner)
     df = pandas.DataFrame(rows)
-    df["exposure"] = df["exposures"].apply(
-        lambda x: x[0] if isinstance(x, list) and x else None
-    )
+    df["exposure"] = df["exposures"].apply(lambda x: int(x.strip("{}")))
+    df["detector"] = df["detector"].astype("int64")
     return df[["group", "detector", "exposure"]]
