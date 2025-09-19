@@ -368,6 +368,13 @@ def make_summary_message(day_obs, instrument):
             count_recurrent_pipeline_errors(
                 b,
                 f"visit.science_program='{survey}'AND instrument='{instrument}'",
+                "rewarpTemplate",
+            )
+        )
+        output_lines.extend(
+            count_recurrent_pipeline_errors(
+                b,
+                f"visit.science_program='{survey}'AND instrument='{instrument}'",
                 "detectAndMeasureDiaSource",
             )
         )
@@ -631,7 +638,11 @@ RECURRENT_ERRORS_BY_TASK = {
         "Exception TooManyMaskedPixelsError",
         "No valid points to fit. Variance is likely zero",
     ],
+    "rewarpTemplate": [
+        "Exception TooManyMaskedPixelsError",
+    ],
     "subtractImages": [
+        "Exception InsufficientKernelSourcesError",
         "Exception NoKernelCandidatesError",
         "RuntimeError: Cannot compute PSF matching kernel: too few sources selected",
         "RuntimeError: No good PSF candidates to pass to PSFEx",
@@ -642,7 +653,8 @@ RECURRENT_ERRORS_BY_TASK = {
     ],
     "detectAndMeasureDiaSource": [
         "Exception BadSubtractionError",
-        "ip.diffim.detectAndMeasure.NoDiaSourcesError",
+        "Exception NoDiaSourcesError",
+        "Exception ValueError: RANSAC could not find a valid consensus set",  # DM-52291
     ],
     "associateApdb": [
         "OperationTimedOut",  # cassandra.OperationTimedOut
