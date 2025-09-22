@@ -228,6 +228,19 @@ def make_summary_message(day_obs, instrument):
         counted += len(df)
         output_lines.append(f"- {len(df)} failure in retrieving json sidecar.")
 
+    df, count_total = errors["json_load"]
+    if count_total > 0:
+        counted += len(df)
+        output_lines.append(f"- {len(df)} failure in loading json sidecar.")
+        lines = _count_messages(
+            df,
+            [
+                "botocore.exceptions.ClientError",
+            ],
+        )
+        if lines:
+            output_lines.extend(lines)
+
     df, _ = errors["unprocessable"]
     if not df.empty:
         counted += len(df)
@@ -241,6 +254,19 @@ def make_summary_message(day_obs, instrument):
         output_lines.append(
             f"- {len(df)} NoGoodPipelinesError: {df.reset_index()['group'].unique().tolist()}"
         )
+
+    df, count_total = errors["ingest_image"]
+    if count_total > 0:
+        counted += len(df)
+        output_lines.append(f"- {len(df)} failed in ingest_image")
+        lines = _count_messages(
+            df,
+            [
+                "botocore.exceptions.ClientError",
+            ],
+        )
+        if lines:
+            output_lines.extend(lines)
 
     if missed > 0:
         output_lines.append(f"- {missed - counted} unspecified")
@@ -502,8 +528,16 @@ def collect_loki_errors(day_obs, instrument, groups):
             "match_string": '|= "RuntimeError: Unable to retrieve JSON sidecar"',
             "match_string2": '|= "Processing failed"',
         },
+        "json_load": {
+            "match_string": '|= "get_group_id_from_oid" |= "json.load"',
+            "match_string2": '|= "Processing failed"',
+        },
         "unprocessable": {
             "match_string": '|= "RuntimeError: All images rejected as unprocessable"',
+            "match_string2": '|= "Processing failed"',
+        },
+        "ingest_image": {
+            "match_string": '|= "mwi.ingest_image" |= "ingester"',
             "match_string2": '|= "Processing failed"',
         },
         "no_pipeline": {
