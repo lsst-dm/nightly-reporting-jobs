@@ -21,7 +21,7 @@ INSTRUMENT_CONFIG = {
     "LSSTCam": {
         "detectors": 189,
         "off": 17,
-        "survey": "BLOCK-365",
+        "survey": "BLOCK-407",
     },
     "LSSTComCam": {
         "detectors": 9,
