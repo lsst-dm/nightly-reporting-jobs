@@ -16,7 +16,7 @@ from queries import (
 # ``detectors`` -- total number of detectors for the instrument
 # ``off``       -- number of detectors that are known to be off and
 #                  therefore should not be counted in expected totals
-# ``survey``    -- survey block associated with the instrument
+# ``survey``    -- default survey block associated with the instrument
 INSTRUMENT_CONFIG = {
     "LSSTCam": {
         "detectors": 189,
@@ -36,13 +36,19 @@ INSTRUMENT_CONFIG = {
 }
 
 
-def make_summary_message(day_obs, instrument):
+def make_summary_message(day_obs, instrument, survey=None):
     """Make Prompt Processing summary message for a night
 
     Parameters
     ----------
     day_obs : `str`
         day_obs in the format of YYYY-MM-DD.
+
+    instrument : `str`
+        Instrument name.
+
+    survey : `str`
+        Science program survey name.
     """
 
     output_lines = []
@@ -54,7 +60,8 @@ def make_summary_message(day_obs, instrument):
     if not config:
         raise KeyError(f"Unknown instrument: {instrument}")
 
-    survey = config["survey"]
+    if survey is None:
+        survey = config["survey"]
     next_visits, canceled_visits = asyncio.run(
         get_next_visit_events(day_obs, instrument, survey)
     )
@@ -153,7 +160,7 @@ def make_summary_message(day_obs, instrument):
         day_obs,
         instrument=instrument,
         match_string='|= "Preprocessing pipeline successfully run."',
-        match_string2="",
+        match_string2=f' | json | survey="{survey}"',
     )
     output_lines.append(
         f"Number of expected preprocessing: {total_visit_count} nextVisits*({total_detectors}-{off_detector} detectors)={expected_preprocessing}. Successful: {len(df)}. "
@@ -338,7 +345,7 @@ def make_summary_message(day_obs, instrument):
         ]
     )
     count_no_work1, count_no_work2 = get_no_work_count_from_loki(
-        day_obs, "associateApdb", visit_detector=sfm_output_subset_visit_detector
+        day_obs, "associateApdb", survey, visit_detector=sfm_output_subset_visit_detector
     )
     count_no_apdb = count_no_work1 + count_no_work2
     output_lines.append(
@@ -713,11 +720,14 @@ if __name__ == "__main__":
 
     day_obs = date.today() - timedelta(days=1)
     day_obs_string = day_obs.strftime("%Y-%m-%d")
-    summary = make_summary_message(day_obs_string, instrument)
+    summary = make_summary_message(day_obs_string, instrument, "BLOCK-407")
     output_message = (
         f":clamps: *{instrument} {day_obs.strftime('%A %Y-%m-%d')}* :clamps: \n"
+        + "*BLOCK-407*\n"
         + summary
     )
+    summary = make_summary_message(day_obs_string, instrument, "BLOCK-408")
+    output_message += "\n*BLOCK-408*\n" + summary
 
     if not url:
         print(f"Must set environment variable {webhook} in order to post")

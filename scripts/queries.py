@@ -233,7 +233,7 @@ def get_df_from_loki(
 
 
 def get_no_work_count_from_loki(
-    day_obs, task_name, instrument="LSSTCam", visit_detector=None
+    day_obs, task_name, survey, instrument="LSSTCam", visit_detector=None
 ):
     """Count the numbers with no work to do
 
@@ -246,7 +246,7 @@ def get_no_work_count_from_loki(
     results = query_loki(
         day_obs,
         container_name=instrument.lower(),
-        search_string=f'|= "Nothing to do for task \'{task_name}"',
+        search_string=f'|= "Nothing to do for task \'{task_name}" | json | survey="{survey}"',
     )
     count1 = len(results.splitlines())
     # These can include images failing at single frame processing after dropping ap tasks
@@ -254,7 +254,7 @@ def get_no_work_count_from_loki(
     results = query_loki(
         day_obs,
         container_name=instrument.lower(),
-        search_string=f'|= "Dropping task {task_name} because no quanta remain (1 had no work to do)"',
+        search_string=f'|= "Dropping task {task_name} because no quanta remain (1 had no work to do)" | json | survey="{survey}"',
     )
     count2 = len(results.splitlines())
     if visit_detector is not None:
