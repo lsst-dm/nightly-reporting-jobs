@@ -170,11 +170,11 @@ def make_summary_message(day_obs, instrument, survey=None):
 
     errors = collect_loki_errors(day_obs, instrument, groups)
 
-    df, count_total = errors["timeout"]
+    df, count_total = errors["raw_timeout"]
     if count_total > 0:
         counted += len(df)
         output_lines.append(
-            f"- {len(df)} unexpected timeout ({count_total} total including raws not received)."
+            f"- {len(df)} unexpected raw timeout ({count_total} total including raws not received)."
         )
 
     df, count_total = errors["mwi_connection"]
@@ -276,7 +276,24 @@ def make_summary_message(day_obs, instrument, survey=None):
         if lines:
             output_lines.extend(lines)
 
-    if missed > 0:
+    df, _ = errors["timeout_interrupt"]
+    if not df.empty:
+        counted += len(df)
+        output_lines.append(
+            f"- {len(df)} timeout interrupted; some might have finished."
+        )
+        lines = _count_messages(
+            df,
+            [
+                "RetriableError: Processing timed out",
+                "NonRetriableError: APDB modified",
+                "mwi.export_outputs",
+            ],
+        )
+        if lines:
+            output_lines.extend(lines)
+
+    if missed - counted >= 0:
         output_lines.append(f"- {missed - counted} unspecified")
 
     output_lines.append(
@@ -451,6 +468,7 @@ def make_summary_message(day_obs, instrument, survey=None):
                 "server closed the connection unexpectedly",
                 "psycopg2.errors.UniqueViolation",
                 "s3transfer.exceptions.RetriesExceededError",
+                "TimeoutInterrupt",
             ],
         )
         if lines:
@@ -550,7 +568,7 @@ def collect_loki_errors(day_obs, instrument, groups):
     """
 
     queries = {
-        "timeout": {
+        "raw_timeout": {
             "match_string": '|= "Timed out waiting for image"',
             "match_string2": '|= "Processing failed"',
         },
@@ -592,6 +610,10 @@ def collect_loki_errors(day_obs, instrument, groups):
         },
         "no_pipeline": {
             "match_string": '|= "NoGoodPipelinesError: No main pipeline graph could be built"',
+            "match_string2": '|= "Processing failed"',
+        },
+        "timeout_interrupt": {
+            "match_string": '|= "activator.exception.TimeoutInterrupt"',
             "match_string2": '|= "Processing failed"',
         },
         "export_outputs": {
