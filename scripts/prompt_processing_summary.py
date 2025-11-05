@@ -401,7 +401,7 @@ def make_summary_message(day_obs, instrument, survey=None):
             count_recurrent_pipeline_errors(
                 b,
                 f"visit.science_program='{survey}'AND instrument='{instrument}'",
-                "rewarpTemplate",
+                "buildTemplate",
             )
         )
         output_lines.extend(
@@ -674,7 +674,7 @@ RECURRENT_ERRORS_BY_TASK = {
     "associateSolarSystemDirectSource": [
         "Exception ValueError: data must be finite, check for nan or inf values",
     ],
-    "rewarpTemplate": [
+    "buildTemplate": [
         "Exception TooManyMaskedPixelsError",
     ],
     "subtractImages": [
