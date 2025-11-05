@@ -317,6 +317,32 @@ def make_summary_message(day_obs, instrument, survey=None):
         )
     )
 
+    # These tasks are run in SingleFrame pipeline only.
+    count_next = count_datasets(
+        b,
+        "associateSolarSystemDirectSource_log",
+        collection,
+        where=f"exposure.science_program IN (survey)",
+        bind={"survey": survey},
+    ) - count_datasets(
+        b,
+        "analyzeUnassociatedDirectSolarSystemObjectTable_log",
+        collection,
+        where=f"exposure.science_program IN (survey)",
+        bind={"survey": survey},
+    )
+    if sfm_counts > dia_counts and count_next > 0:
+        count, lines = count_recurrent_pipeline_errors(
+            b,
+            f"visit.science_program='{survey}'AND instrument='{instrument}'",
+            "associateSolarSystemDirectSource",
+        )
+        if count > 0:
+            output_lines.append(
+                f"- associateSolarSystemDirectSource: {count_next} failed."
+            )
+            output_lines.extend(lines)
+
     sfm_output_subset_visit_detector = set(
         [
             (x.dataId["visit"], x.dataId["detector"])
@@ -644,6 +670,9 @@ RECURRENT_ERRORS_BY_TASK = {
         "Exception TooManyCosmicRays",
         "Exception TooManyMaskedPixelsError",
         "No valid points to fit. Variance is likely zero",
+    ],
+    "associateSolarSystemDirectSource": [
+        "Exception ValueError: data must be finite, check for nan or inf values",
     ],
     "rewarpTemplate": [
         "Exception TooManyMaskedPixelsError",
