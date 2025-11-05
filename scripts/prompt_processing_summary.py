@@ -304,18 +304,20 @@ def make_summary_message(day_obs, instrument, survey=None):
         where=f"exposure.science_program IN (survey)",
         bind={"survey": survey},
     )
+    count_failed = sfm_counts + dia_counts - sfm_outputs
     output_lines.append(
         "- calibrateImage: {:d} attempts with outputs, {:d} passed, {:d} failed.".format(
-            sfm_counts + dia_counts, sfm_outputs, sfm_counts + dia_counts - sfm_outputs
+            sfm_counts + dia_counts, sfm_outputs, count_failed
         )
     )
-    output_lines.extend(
-        count_recurrent_pipeline_errors(
-            b,
-            f"visit.science_program='{survey}'AND instrument='{instrument}'",
-            "calibrateImage",
-        )
+    count, lines = count_recurrent_pipeline_errors(
+        b,
+        f"visit.science_program='{survey}'AND instrument='{instrument}'",
+        "calibrateImage",
     )
+    output_lines.extend(lines)
+    if count_failed - count > 0:
+        output_lines.append(f"    {count_failed - count} unspecified")
 
     # These tasks are run in SingleFrame pipeline only.
     count_next = count_datasets(
@@ -371,53 +373,60 @@ def make_summary_message(day_obs, instrument, survey=None):
         ]
     )
     count_no_work1, count_no_work2 = get_no_work_count_from_loki(
-        day_obs, "associateApdb", survey, visit_detector=sfm_output_subset_visit_detector
+        day_obs,
+        "associateApdb",
+        survey,
+        visit_detector=sfm_output_subset_visit_detector,
     )
     count_no_apdb = count_no_work1 + count_no_work2
+    count_failed = dia_counts - len(dia_visit_detector) - count_no_apdb
     output_lines.append(
-        "- associateApdb: {:d} attempts with outputs, {:d}+{:d}(no-work)+{:d}(no-work)={:d} passed, {:d} failed".format(
+        "- associateApdb: {:d} ApPipe attempts with outputs, {:d}+{:d}(no-work)+{:d}(no-work)={:d} passed, {:d} failed".format(
             dia_counts,
             len(dia_visit_detector),
             count_no_work1,
             count_no_work2,
             len(dia_visit_detector) + count_no_apdb,
-            dia_counts - len(dia_visit_detector) - count_no_apdb,
+            count_failed,
         )
     )
+    count_failed_sfm = dia_counts - len(sfm_output_subset_visit_detector)
     if sfm_output_subset_visit_detector:
-        output_lines.append(
-            f"  - {dia_counts - len(sfm_output_subset_visit_detector)} failed at single frame stage"
-        )
+        output_lines.append(f"  - {count_failed_sfm} failed at single frame stage")
 
-    if dia_counts > 0 and (dia_counts - len(dia_visit_detector) - count_no_apdb) > 0:
-        output_lines.extend(
-            count_recurrent_pipeline_errors(
-                b,
-                f"visit.science_program='{survey}'AND instrument='{instrument}'",
-                "subtractImages",
-            )
+    count_failed -= count_failed_sfm
+
+    if dia_counts > 0 and count_failed > 0:
+        count, lines = count_recurrent_pipeline_errors(
+            b,
+            f"visit.science_program='{survey}'AND instrument='{instrument}'",
+            "subtractImages",
         )
-        output_lines.extend(
-            count_recurrent_pipeline_errors(
-                b,
-                f"visit.science_program='{survey}'AND instrument='{instrument}'",
-                "buildTemplate",
-            )
+        output_lines.extend(lines)
+        count_failed -= count
+        count, lines = count_recurrent_pipeline_errors(
+            b,
+            f"visit.science_program='{survey}'AND instrument='{instrument}'",
+            "buildTemplate",
         )
-        output_lines.extend(
-            count_recurrent_pipeline_errors(
-                b,
-                f"visit.science_program='{survey}'AND instrument='{instrument}'",
-                "detectAndMeasureDiaSource",
-            )
+        output_lines.extend(lines)
+        count_failed -= count
+        count, lines = count_recurrent_pipeline_errors(
+            b,
+            f"visit.science_program='{survey}'AND instrument='{instrument}'",
+            "detectAndMeasureDiaSource",
         )
-        output_lines.extend(
-            count_recurrent_pipeline_errors(
-                b,
-                f"visit.science_program='{survey}'AND instrument='{instrument}'",
-                "associateApdb",
-            )
+        output_lines.extend(lines)
+        count_failed -= count
+        count, lines = count_recurrent_pipeline_errors(
+            b,
+            f"visit.science_program='{survey}'AND instrument='{instrument}'",
+            "associateApdb",
         )
+        output_lines.extend(lines)
+        count_failed -= count
+        if count_failed > 0:
+            output_lines.append(f"    {count_failed} unspecified")
 
     output_lines.append(
         f"<https://usdf-rsp.slac.stanford.edu/times-square/github/lsst-dm/vv-team-notebooks/PREOPS-prompt-error-msgs?day_obs={day_obs}&instrument={instrument}&ts_hide_code=1&survey={survey}|Full Error Log>"
@@ -724,7 +733,7 @@ def count_recurrent_pipeline_errors(butler, where, task):
             total_count += count
     if lines:
         lines.insert(0, f"    Among {task} errors, {total_count} were")
-    return lines
+    return total_count, lines
 
 
 def _count_error(errMsg, visit_errors):
