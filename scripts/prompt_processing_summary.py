@@ -679,6 +679,8 @@ RECURRENT_ERRORS_BY_TASK = {
         "Exception TooManyCosmicRays",
         "Exception TooManyMaskedPixelsError",
         "No valid points to fit. Variance is likely zero",
+        "Schema for Source must contain at least the keys defined by getMinimalSchema",  # DM-53200
+        "Processing timed out",
     ],
     "associateSolarSystemDirectSource": [
         "Exception ValueError: data must be finite, check for nan or inf values",
