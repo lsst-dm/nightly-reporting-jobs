@@ -6,6 +6,7 @@ from datetime import date, timedelta
 import requests
 
 from queries import (
+    count_alerts,
     get_next_visit_events,
     get_no_work_count_from_loki,
     get_df_from_loki,
@@ -768,6 +769,10 @@ if __name__ == "__main__":
     )
     summary = make_summary_message(day_obs_string, instrument, "BLOCK-408")
     output_message += "\n*BLOCK-408*\n" + summary
+
+    number_alerts = count_alerts(day_obs_string)
+    if number_alerts:
+        output_message += f"\n\nNumber of alerts: {number_alerts}"
 
     if not url:
         print(f"Must set environment variable {webhook} in order to post")

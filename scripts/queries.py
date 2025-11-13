@@ -20,6 +20,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 __all__ = [
+    "count_alerts",
     "get_next_visit_events",
     "get_no_work_count_from_loki",
     "get_status_code_from_loki",
@@ -28,6 +29,7 @@ __all__ = [
 import logging
 import json
 import re
+import requests
 import subprocess
 
 from astropy.time import Time, TimeDelta
@@ -322,3 +324,47 @@ def parse_loki_results(results):
     df["exposure"] = df["exposures"].apply(lambda x: int(x.strip("{}")))
     df["detector"] = df["detector"].astype("int64")
     return df[["group", "detector", "exposure"]]
+
+
+def count_alerts(day_obs_string):
+    """Query alert stream increase over a day_obs"""
+    url = "https://prometheus.slac.stanford.edu/api/v1/query_range"
+
+    start, end = get_start_end(day_obs_string)
+    topic = "lsst-alerts-v9.0"
+
+    params = {
+        "query": f"sum by (topic) (kafka_topic_partition_current_offset{{"
+        f'namespace=~"vcluster--usdf-alert-stream-broker.dev", topic="{topic}"}})',
+        "start": start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "end": end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "step": "24h",
+    }
+
+    # Make a request to the Prometheus API
+    response = requests.get(url, params=params)
+
+    if response.status_code == 200:
+        data = response.json()
+        values = data.get("data", {}).get("result", [])
+
+        if values:
+            topic_values = values[0].get("values", [])
+            if topic != values[0].get("metric", []).get("topic", []):
+                _log.error(f"Alert topic {topic} not found.")
+                return None
+            if len(topic_values) == 2:
+                first_value_timestamp, first_value_offset = topic_values[0]
+                last_value_timestamp, last_value_offset = topic_values[1]
+                difference = int(last_value_offset) - int(first_value_offset)
+                _log.debug(f"{day_obs_string}: {difference} alerts from {topic}")
+                return difference
+            else:
+                _log.error(f"Unexpected results: {json.dumps(data, indent=4)}")
+                return None
+        else:
+            _log.error("No results found.")
+            return None
+    else:
+        _log.error(f"Error: {response.status_code} - {response.text}")
+        return None
