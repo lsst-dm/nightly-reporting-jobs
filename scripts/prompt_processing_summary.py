@@ -381,9 +381,7 @@ def make_summary_message(day_obs, instrument, survey=None):
         )
     )
     count, lines = count_recurrent_pipeline_errors(
-        b,
-        f"visit.science_program='{survey}'AND instrument='{instrument}'",
-        "calibrateImage",
+        b, survey, "calibrateImage", False, instrument
     )
     output_lines.extend(lines)
     if count_failed - count > 0:
@@ -406,7 +404,7 @@ def make_summary_message(day_obs, instrument, survey=None):
     if sfm_counts > dia_counts and count_next > 0:
         count, lines = count_recurrent_pipeline_errors(
             b,
-            f"visit.science_program='{survey}'AND instrument='{instrument}'",
+            survey,
             "associateSolarSystemDirectSource",
         )
         if lines:
@@ -416,30 +414,26 @@ def make_summary_message(day_obs, instrument, survey=None):
         dia_counts - len(dia_visit_detector) - count_no_apdb - count_failed_sfm
     )
     if dia_counts > 0 and count_failed > 0:
-        count, lines = count_recurrent_pipeline_errors(
-            b,
-            f"visit.science_program='{survey}'AND instrument='{instrument}'",
-            "subtractImages",
-        )
+        count, lines = count_recurrent_pipeline_errors(b, survey, "subtractImages")
         output_lines.extend(lines)
         count_failed -= count
         count, lines = count_recurrent_pipeline_errors(
             b,
-            f"visit.science_program='{survey}'AND instrument='{instrument}'",
+            survey,
             "buildTemplate",
         )
         output_lines.extend(lines)
         count_failed -= count
         count, lines = count_recurrent_pipeline_errors(
             b,
-            f"visit.science_program='{survey}'AND instrument='{instrument}'",
+            survey,
             "detectAndMeasureDiaSource",
         )
         output_lines.extend(lines)
         count_failed -= count
         count, lines = count_recurrent_pipeline_errors(
             b,
-            f"visit.science_program='{survey}'AND instrument='{instrument}'",
+            survey,
             "associateApdb",
         )
         output_lines.extend(lines)
@@ -735,7 +729,10 @@ RECURRENT_ERRORS_BY_TASK = {
 }
 
 
-def count_recurrent_pipeline_errors(butler, where, task):
+def count_recurrent_pipeline_errors(
+    butler, survey, task, header=True, instrument="LSSTCam"
+):
+    where = f"visit.science_program='{survey}'AND instrument='{instrument}'"
     # with open("error_config.yaml") as f:
     #    RECURRENT_ERRORS_BY_TASK = yaml.safe_load(f)
     recurrent_errors = RECURRENT_ERRORS_BY_TASK.get(task, [])
@@ -759,6 +756,8 @@ def count_recurrent_pipeline_errors(butler, where, task):
             total_count += count
     if lines:
         lines.insert(0, f"    Among {task} errors, {total_count} were")
+        if header:
+            lines.insert(0, f"- {task}:")
     return total_count, lines
 
 
