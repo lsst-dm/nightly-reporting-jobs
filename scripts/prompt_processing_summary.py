@@ -296,11 +296,62 @@ def make_summary_message(day_obs, instrument, survey=None):
     if missed - counted >= 0:
         output_lines.append(f"- {missed - counted} unspecified")
 
+    # analyzePreliminarySummaryStats uses preliminary_visit_image
+    sfm_output_subset_visit_detector = set(
+        [
+            (x.dataId["visit"], x.dataId["detector"])
+            for x in butler_nocollection.query_datasets(
+                "analyzePreliminarySummaryStats_log",
+                collections=f"{instrument}/prompt/output-{day_obs:s}/ApPipe*",
+                where=f"exposure.science_program IN (survey)",
+                bind={"survey": survey},
+                find_first=False,
+                explain=False,
+                limit=None,
+            )
+        ]
+    )
+
+    dia_visit_detector = set(
+        [
+            (x.dataId["visit"], x.dataId["detector"])
+            for x in b.query_datasets(
+                "dia_source_apdb",
+                where=f"exposure.science_program IN (survey)",
+                bind={"survey": survey},
+                explain=False,
+                limit=None,
+            )
+        ]
+    )
+    count_no_work1, count_no_work2 = get_no_work_count_from_loki(
+        day_obs,
+        "associateApdb",
+        survey,
+        visit_detector=sfm_output_subset_visit_detector,
+    )
+    count_no_apdb = count_no_work1 + count_no_work2
+    count_failed = dia_counts - len(dia_visit_detector) - count_no_apdb
+    output_lines.extend(
+        [
+            f"Number of main pipeline runs with outputs: {len(log_visit_detector)} total",
+            f"- Isr: {isr_counts}",
+            f"- SingleFrame: {sfm_counts}",
+        ]
+    )
     output_lines.append(
-        "Number of main pipeline runs with outputs: {:d} total, {:d} Isr, {:d} SingleFrame, {:d} ApPipe".format(
-            len(log_visit_detector), isr_counts, sfm_counts, dia_counts
+        "- ApPipe: {:d}, {:d}+{:d}(no-work)+{:d}(no-work)={:d} passed, {:d} failed".format(
+            dia_counts,
+            len(dia_visit_detector),
+            count_no_work1,
+            count_no_work2,
+            len(dia_visit_detector) + count_no_apdb,
+            count_failed,
         )
     )
+    count_failed_sfm = dia_counts - len(sfm_output_subset_visit_detector)
+    if sfm_output_subset_visit_detector:
+        output_lines.append(f"  - {count_failed_sfm} failed at single frame stage")
 
     isr_outputs = count_datasets(
         b,
@@ -309,9 +360,10 @@ def make_summary_message(day_obs, instrument, survey=None):
         where=f"exposure.science_program IN (survey)",
         bind={"survey": survey},
     )
+    output_lines.append("Tasks")
     output_lines.append(
-        "- isr: {:d} attempts with outputs, {:d} passed not including ISR-only attempts.".format(
-            isr_counts + sfm_counts + dia_counts, isr_outputs
+        "- isr: {:d} attempts with outputs, {:d} passed not including {:d} ISR-only attempts.".format(
+            isr_counts + sfm_counts + dia_counts, isr_outputs, isr_counts
         )
     )
 
@@ -357,63 +409,12 @@ def make_summary_message(day_obs, instrument, survey=None):
             f"visit.science_program='{survey}'AND instrument='{instrument}'",
             "associateSolarSystemDirectSource",
         )
-        if count > 0:
-            output_lines.append(
-                f"- associateSolarSystemDirectSource: {count_next} failed."
-            )
+        if lines:
             output_lines.extend(lines)
 
-    sfm_output_subset_visit_detector = set(
-        [
-            (x.dataId["visit"], x.dataId["detector"])
-            for x in butler_nocollection.query_datasets(
-                "analyzePreliminarySummaryStats_log",
-                collections=f"{instrument}/prompt/output-{day_obs:s}/ApPipe*",
-                where=f"exposure.science_program IN (survey)",
-                bind={"survey": survey},
-                find_first=False,
-                explain=False,
-                limit=None,
-            )
-        ]
+    count_failed = (
+        dia_counts - len(dia_visit_detector) - count_no_apdb - count_failed_sfm
     )
-
-    dia_visit_detector = set(
-        [
-            (x.dataId["visit"], x.dataId["detector"])
-            for x in b.query_datasets(
-                "dia_source_apdb",
-                where=f"exposure.science_program IN (survey)",
-                bind={"survey": survey},
-                explain=False,
-                limit=None,
-            )
-        ]
-    )
-    count_no_work1, count_no_work2 = get_no_work_count_from_loki(
-        day_obs,
-        "associateApdb",
-        survey,
-        visit_detector=sfm_output_subset_visit_detector,
-    )
-    count_no_apdb = count_no_work1 + count_no_work2
-    count_failed = dia_counts - len(dia_visit_detector) - count_no_apdb
-    output_lines.append(
-        "- associateApdb: {:d} ApPipe attempts with outputs, {:d}+{:d}(no-work)+{:d}(no-work)={:d} passed, {:d} failed".format(
-            dia_counts,
-            len(dia_visit_detector),
-            count_no_work1,
-            count_no_work2,
-            len(dia_visit_detector) + count_no_apdb,
-            count_failed,
-        )
-    )
-    count_failed_sfm = dia_counts - len(sfm_output_subset_visit_detector)
-    if sfm_output_subset_visit_detector:
-        output_lines.append(f"  - {count_failed_sfm} failed at single frame stage")
-
-    count_failed -= count_failed_sfm
-
     if dia_counts > 0 and count_failed > 0:
         count, lines = count_recurrent_pipeline_errors(
             b,
