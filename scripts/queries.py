@@ -22,6 +22,7 @@
 __all__ = [
     "count_alerts",
     "get_next_visit_events",
+    "get_nvfo_groups",
     "get_no_work_count_from_loki",
     "get_status_code_from_loki",
     "get_df_from_loki",
@@ -141,6 +142,35 @@ def query_loki(day_obs, container_name, search_string):
         raise RuntimeError(error_msg)
 
     return result.stdout
+
+
+def get_nvfo_groups(day_obs, survey):
+    """Get the groups next-visit-fan-out deserialized
+
+    Parameters
+    ----------
+    day_obs : `str`
+        day_obs in the format of YYYY-MM-DD.
+    survey : `str`
+        Science program survey name.
+
+    Returns
+    -------
+    groups : `list`
+        A list of groups that NVFO deserialized.
+    """
+    results = query_loki(
+        day_obs,
+        container_name="next-visit-fan-out",
+        search_string=f'|="message deserialized" |= "{survey}"',
+    )
+    pattern = re.compile(r"'groupId':\s*'(?P<group>[^']+)'")
+    groups = [
+        m1.group("group")
+        for line in results.splitlines()
+        if (m1 := pattern.search(line))
+    ]
+    return groups
 
 
 def get_status_code_from_loki(day_obs):

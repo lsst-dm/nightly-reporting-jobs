@@ -8,6 +8,7 @@ import requests
 from queries import (
     count_alerts,
     get_next_visit_events,
+    get_nvfo_groups,
     get_no_work_count_from_loki,
     get_df_from_loki,
 )
@@ -133,6 +134,13 @@ def make_summary_message(day_obs, instrument, survey=None):
         output_lines.append(f"No output collection was found for {day_obs:s}")
         return "\n".join(output_lines)
 
+    groups_nvfo = get_nvfo_groups(day_obs, survey)
+    group_nvfo_missed = set(groups) - set(groups_nvfo)
+    if group_nvfo_missed:
+        output_lines.append(
+            f"- {len(group_nvfo_missed)} raw groups were not received by NVFO."
+        )
+
     isr_counts, sfm_counts, dia_counts = count_pipeline_outputs(
         butler_nocollection,
         f"{instrument}/prompt/output-{day_obs:s}",
@@ -156,7 +164,7 @@ def make_summary_message(day_obs, instrument, survey=None):
         ]
     )
     missed = 0
-    counted = 0
+    counted = len(group_nvfo_missed) * (total_detectors - off_detector)
     df = get_df_from_loki(
         day_obs,
         instrument=instrument,
