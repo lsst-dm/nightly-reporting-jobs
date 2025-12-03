@@ -799,6 +799,8 @@ if __name__ == "__main__":
     )
     summary = make_summary_message(day_obs_string, instrument, "BLOCK-408")
     output_message += "\n*BLOCK-408*\n" + summary
+    summary = make_summary_message(day_obs_string, instrument, "BLOCK-416")
+    output_message += "\n*BLOCK-416*\n" + summary
 
     number_alerts = count_alerts(day_obs_string)
     if number_alerts:
