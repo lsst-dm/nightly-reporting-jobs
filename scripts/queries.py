@@ -20,7 +20,9 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 __all__ = [
+    "count_alerts",
     "get_next_visit_events",
+    "get_nvfo_groups",
     "get_no_work_count_from_loki",
     "get_status_code_from_loki",
     "get_df_from_loki",
@@ -28,6 +30,7 @@ __all__ = [
 import logging
 import json
 import re
+import requests
 import subprocess
 
 from astropy.time import Time, TimeDelta
@@ -141,6 +144,35 @@ def query_loki(day_obs, container_name, search_string):
     return result.stdout
 
 
+def get_nvfo_groups(day_obs, survey):
+    """Get the groups next-visit-fan-out deserialized
+
+    Parameters
+    ----------
+    day_obs : `str`
+        day_obs in the format of YYYY-MM-DD.
+    survey : `str`
+        Science program survey name.
+
+    Returns
+    -------
+    groups : `list`
+        A list of groups that NVFO deserialized.
+    """
+    results = query_loki(
+        day_obs,
+        container_name="next-visit-fan-out",
+        search_string=f'|="message deserialized" |= "{survey}"',
+    )
+    pattern = re.compile(r"'groupId':\s*'(?P<group>[^']+)'")
+    groups = [
+        m1.group("group")
+        for line in results.splitlines()
+        if (m1 := pattern.search(line))
+    ]
+    return groups
+
+
 def get_status_code_from_loki(day_obs):
     """Get status return codes from next-visit-fan-out
 
@@ -233,7 +265,7 @@ def get_df_from_loki(
 
 
 def get_no_work_count_from_loki(
-    day_obs, task_name, instrument="LSSTCam", visit_detector=None
+    day_obs, task_name, survey, instrument="LSSTCam", visit_detector=None
 ):
     """Count the numbers with no work to do
 
@@ -246,7 +278,7 @@ def get_no_work_count_from_loki(
     results = query_loki(
         day_obs,
         container_name=instrument.lower(),
-        search_string=f'|= "Nothing to do for task \'{task_name}"',
+        search_string=f'|= "Nothing to do for task \'{task_name}" | json | survey="{survey}"',
     )
     count1 = len(results.splitlines())
     # These can include images failing at single frame processing after dropping ap tasks
@@ -254,7 +286,7 @@ def get_no_work_count_from_loki(
     results = query_loki(
         day_obs,
         container_name=instrument.lower(),
-        search_string=f'|= "Dropping task {task_name} because no quanta remain (1 had no work to do)"',
+        search_string=f'|= "Dropping task {task_name} because no quanta remain (1 had no work to do)" | json | survey="{survey}"',
     )
     count2 = len(results.splitlines())
     if visit_detector is not None:
@@ -322,3 +354,47 @@ def parse_loki_results(results):
     df["exposure"] = df["exposures"].apply(lambda x: int(x.strip("{}")))
     df["detector"] = df["detector"].astype("int64")
     return df[["group", "detector", "exposure"]]
+
+
+def count_alerts(day_obs_string):
+    """Query alert stream increase over a day_obs"""
+    url = "https://prometheus.slac.stanford.edu/api/v1/query_range"
+
+    start, end = get_start_end(day_obs_string)
+    topic = "lsst-alerts-v10.0"
+
+    params = {
+        "query": f"sum by (topic) (kafka_topic_partition_current_offset{{"
+        f'namespace=~"vcluster--usdf-alert-stream-broker.dev", topic="{topic}"}})',
+        "start": start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "end": end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "step": "24h",
+    }
+
+    # Make a request to the Prometheus API
+    response = requests.get(url, params=params)
+
+    if response.status_code == 200:
+        data = response.json()
+        values = data.get("data", {}).get("result", [])
+
+        if values:
+            topic_values = values[0].get("values", [])
+            if topic != values[0].get("metric", []).get("topic", []):
+                _log.error(f"Alert topic {topic} not found.")
+                return None
+            if len(topic_values) == 2:
+                first_value_timestamp, first_value_offset = topic_values[0]
+                last_value_timestamp, last_value_offset = topic_values[1]
+                difference = int(last_value_offset) - int(first_value_offset)
+                _log.debug(f"{day_obs_string}: {difference} alerts from {topic}")
+                return difference
+            else:
+                _log.error(f"Unexpected results: {json.dumps(data, indent=4)}")
+                return None
+        else:
+            _log.error("No results found.")
+            return None
+    else:
+        _log.error(f"Error: {response.status_code} - {response.text}")
+        return None

@@ -6,7 +6,9 @@ from datetime import date, timedelta
 import requests
 
 from queries import (
+    count_alerts,
     get_next_visit_events,
+    get_nvfo_groups,
     get_no_work_count_from_loki,
     get_df_from_loki,
 )
@@ -16,12 +18,12 @@ from queries import (
 # ``detectors`` -- total number of detectors for the instrument
 # ``off``       -- number of detectors that are known to be off and
 #                  therefore should not be counted in expected totals
-# ``survey``    -- survey block associated with the instrument
+# ``survey``    -- default survey block associated with the instrument
 INSTRUMENT_CONFIG = {
     "LSSTCam": {
         "detectors": 189,
         "off": 17,
-        "survey": "BLOCK-365",
+        "survey": "BLOCK-407",
     },
     "LSSTComCam": {
         "detectors": 9,
@@ -36,13 +38,19 @@ INSTRUMENT_CONFIG = {
 }
 
 
-def make_summary_message(day_obs, instrument):
+def make_summary_message(day_obs, instrument, survey=None):
     """Make Prompt Processing summary message for a night
 
     Parameters
     ----------
     day_obs : `str`
         day_obs in the format of YYYY-MM-DD.
+
+    instrument : `str`
+        Instrument name.
+
+    survey : `str`
+        Science program survey name.
     """
 
     output_lines = []
@@ -54,7 +62,8 @@ def make_summary_message(day_obs, instrument):
     if not config:
         raise KeyError(f"Unknown instrument: {instrument}")
 
-    survey = config["survey"]
+    if survey is None:
+        survey = config["survey"]
     next_visits, canceled_visits = asyncio.run(
         get_next_visit_events(day_obs, instrument, survey)
     )
@@ -125,6 +134,13 @@ def make_summary_message(day_obs, instrument):
         output_lines.append(f"No output collection was found for {day_obs:s}")
         return "\n".join(output_lines)
 
+    groups_nvfo = get_nvfo_groups(day_obs, survey)
+    group_nvfo_missed = set(groups) - set(groups_nvfo)
+    if group_nvfo_missed:
+        output_lines.append(
+            f"- {len(group_nvfo_missed)} raw groups were not received by NVFO."
+        )
+
     isr_counts, sfm_counts, dia_counts = count_pipeline_outputs(
         butler_nocollection,
         f"{instrument}/prompt/output-{day_obs:s}",
@@ -148,12 +164,12 @@ def make_summary_message(day_obs, instrument):
         ]
     )
     missed = 0
-    counted = 0
+    counted = len(group_nvfo_missed) * (total_detectors - off_detector)
     df = get_df_from_loki(
         day_obs,
         instrument=instrument,
         match_string='|= "Preprocessing pipeline successfully run."',
-        match_string2="",
+        match_string2=f' | json | survey="{survey}"',
     )
     output_lines.append(
         f"Number of expected preprocessing: {total_visit_count} nextVisits*({total_detectors}-{off_detector} detectors)={expected_preprocessing}. Successful: {len(df)}. "
@@ -162,11 +178,11 @@ def make_summary_message(day_obs, instrument):
 
     errors = collect_loki_errors(day_obs, instrument, groups)
 
-    df, count_total = errors["timeout"]
+    df, count_total = errors["raw_timeout"]
     if count_total > 0:
         counted += len(df)
         output_lines.append(
-            f"- {len(df)} unexpected timeout ({count_total} total including raws not received)."
+            f"- {len(df)} unexpected raw timeout ({count_total} total including raws not received)."
         )
 
     df, count_total = errors["mwi_connection"]
@@ -228,6 +244,19 @@ def make_summary_message(day_obs, instrument):
         counted += len(df)
         output_lines.append(f"- {len(df)} failure in retrieving json sidecar.")
 
+    df, count_total = errors["json_load"]
+    if count_total > 0:
+        counted += len(df)
+        output_lines.append(f"- {len(df)} failure in loading json sidecar.")
+        lines = _count_messages(
+            df,
+            [
+                "botocore.exceptions.ClientError",
+            ],
+        )
+        if lines:
+            output_lines.extend(lines)
+
     df, _ = errors["unprocessable"]
     if not df.empty:
         counted += len(df)
@@ -242,48 +271,40 @@ def make_summary_message(day_obs, instrument):
             f"- {len(df)} NoGoodPipelinesError: {df.reset_index()['group'].unique().tolist()}"
         )
 
-    if missed > 0:
+    df, count_total = errors["ingest_image"]
+    if count_total > 0:
+        counted += len(df)
+        output_lines.append(f"- {len(df)} failed in ingest_image")
+        lines = _count_messages(
+            df,
+            [
+                "botocore.exceptions.ClientError",
+            ],
+        )
+        if lines:
+            output_lines.extend(lines)
+
+    df, _ = errors["timeout_interrupt"]
+    if not df.empty:
+        counted += len(df)
+        output_lines.append(
+            f"- {len(df)} timeout interrupted; some might have finished."
+        )
+        lines = _count_messages(
+            df,
+            [
+                "RetriableError: Processing timed out",
+                "NonRetriableError: APDB modified",
+                "mwi.export_outputs",
+            ],
+        )
+        if lines:
+            output_lines.extend(lines)
+
+    if missed - counted >= 0:
         output_lines.append(f"- {missed - counted} unspecified")
 
-    output_lines.append(
-        "Number of main pipeline runs with outputs: {:d} total, {:d} Isr, {:d} SingleFrame, {:d} ApPipe".format(
-            len(log_visit_detector), isr_counts, sfm_counts, dia_counts
-        )
-    )
-
-    isr_outputs = count_datasets(
-        b,
-        "calibrateImage_log",  # this misses ISR-only
-        collection,
-        where=f"exposure.science_program IN (survey)",
-        bind={"survey": survey},
-    )
-    output_lines.append(
-        "- isr: {:d} attempts with outputs, {:d} passed not including ISR-only attempts.".format(
-            isr_counts + sfm_counts + dia_counts, isr_outputs
-        )
-    )
-
-    sfm_outputs = count_datasets(
-        b,
-        "analyzePreliminarySummaryStats_log",
-        collection,
-        where=f"exposure.science_program IN (survey)",
-        bind={"survey": survey},
-    )
-    output_lines.append(
-        "- calibrateImage: {:d} attempts with outputs, {:d} passed, {:d} failed.".format(
-            sfm_counts + dia_counts, sfm_outputs, sfm_counts + dia_counts - sfm_outputs
-        )
-    )
-    output_lines.extend(
-        count_recurrent_pipeline_errors(
-            b,
-            f"visit.science_program='{survey}'AND instrument='{instrument}'",
-            "calibrateImage",
-        )
-    )
-
+    # analyzePreliminarySummaryStats uses preliminary_visit_image
     sfm_output_subset_visit_detector = set(
         [
             (x.dataId["visit"], x.dataId["detector"])
@@ -312,46 +333,121 @@ def make_summary_message(day_obs, instrument):
         ]
     )
     count_no_work1, count_no_work2 = get_no_work_count_from_loki(
-        day_obs, "associateApdb", visit_detector=sfm_output_subset_visit_detector
+        day_obs,
+        "associateApdb",
+        survey,
+        visit_detector=sfm_output_subset_visit_detector,
     )
     count_no_apdb = count_no_work1 + count_no_work2
+    count_failed = dia_counts - len(dia_visit_detector) - count_no_apdb
+    output_lines.extend(
+        [
+            f"Number of main pipeline runs with outputs: {len(log_visit_detector)} total",
+            f"- Isr: {isr_counts}",
+            f"- SingleFrame: {sfm_counts}",
+        ]
+    )
     output_lines.append(
-        "- associateApdb: {:d} attempts with outputs, {:d}+{:d}(no-work)+{:d}(no-work)={:d} passed, {:d} failed".format(
+        "- ApPipe: {:d}, {:d}+{:d}(no-work)+{:d}(no-work)={:d} passed, {:d} failed".format(
             dia_counts,
             len(dia_visit_detector),
             count_no_work1,
             count_no_work2,
             len(dia_visit_detector) + count_no_apdb,
-            dia_counts - len(dia_visit_detector) - count_no_apdb,
+            count_failed,
         )
     )
+    count_failed_sfm = dia_counts - len(sfm_output_subset_visit_detector)
     if sfm_output_subset_visit_detector:
-        output_lines.append(
-            f"  - {dia_counts - len(sfm_output_subset_visit_detector)} failed at single frame stage"
-        )
+        output_lines.append(f"  - {count_failed_sfm} failed at single frame stage")
 
-    if dia_counts > 0 and (dia_counts - len(dia_visit_detector) - count_no_apdb) > 0:
-        output_lines.extend(
-            count_recurrent_pipeline_errors(
-                b,
-                f"visit.science_program='{survey}'AND instrument='{instrument}'",
-                "subtractImages",
-            )
+    isr_outputs = count_datasets(
+        b,
+        "calibrateImage_log",  # this misses ISR-only
+        collection,
+        where=f"exposure.science_program IN (survey)",
+        bind={"survey": survey},
+    )
+    output_lines.append("Tasks")
+    output_lines.append(
+        "- isr: {:d} attempts with outputs, {:d} passed not including {:d} ISR-only attempts.".format(
+            isr_counts + sfm_counts + dia_counts, isr_outputs, isr_counts
         )
-        output_lines.extend(
-            count_recurrent_pipeline_errors(
-                b,
-                f"visit.science_program='{survey}'AND instrument='{instrument}'",
-                "detectAndMeasureDiaSource",
-            )
+    )
+
+    sfm_outputs = count_datasets(
+        b,
+        "analyzePreliminarySummaryStats_log",
+        collection,
+        where=f"exposure.science_program IN (survey)",
+        bind={"survey": survey},
+    )
+    count_failed = sfm_counts + dia_counts - sfm_outputs
+    output_lines.append(
+        "- calibrateImage: {:d} attempts with outputs, {:d} passed, {:d} failed.".format(
+            sfm_counts + dia_counts, sfm_outputs, count_failed
         )
-        output_lines.extend(
-            count_recurrent_pipeline_errors(
-                b,
-                f"visit.science_program='{survey}'AND instrument='{instrument}'",
-                "associateApdb",
-            )
+    )
+    count, lines = count_recurrent_pipeline_errors(
+        b, survey, "calibrateImage", False, instrument
+    )
+    output_lines.extend(lines)
+    if count_failed - count > 0:
+        output_lines.append(f"    {count_failed - count} unspecified")
+
+    # These tasks are run in SingleFrame pipeline only.
+    count_next = count_datasets(
+        b,
+        "associateSolarSystemDirectSource_log",
+        collection,
+        where=f"exposure.science_program IN (survey)",
+        bind={"survey": survey},
+    ) - count_datasets(
+        b,
+        "analyzeUnassociatedDirectSolarSystemObjectTable_log",
+        collection,
+        where=f"exposure.science_program IN (survey)",
+        bind={"survey": survey},
+    )
+    if sfm_counts > dia_counts and count_next > 0:
+        count, lines = count_recurrent_pipeline_errors(
+            b,
+            survey,
+            "associateSolarSystemDirectSource",
         )
+        if lines:
+            output_lines.extend(lines)
+
+    count_failed = (
+        dia_counts - len(dia_visit_detector) - count_no_apdb - count_failed_sfm
+    )
+    if dia_counts > 0 and count_failed > 0:
+        count, lines = count_recurrent_pipeline_errors(b, survey, "subtractImages")
+        output_lines.extend(lines)
+        count_failed -= count
+        count, lines = count_recurrent_pipeline_errors(
+            b,
+            survey,
+            "buildTemplate",
+        )
+        output_lines.extend(lines)
+        count_failed -= count
+        count, lines = count_recurrent_pipeline_errors(
+            b,
+            survey,
+            "detectAndMeasureDiaSource",
+        )
+        output_lines.extend(lines)
+        count_failed -= count
+        count, lines = count_recurrent_pipeline_errors(
+            b,
+            survey,
+            "associateApdb",
+        )
+        output_lines.extend(lines)
+        count_failed -= count
+        if count_failed > 0:
+            output_lines.append(f"    {count_failed} unspecified")
 
     output_lines.append(
         f"<https://usdf-rsp.slac.stanford.edu/times-square/github/lsst-dm/vv-team-notebooks/PREOPS-prompt-error-msgs?day_obs={day_obs}&instrument={instrument}&ts_hide_code=1&survey={survey}|Full Error Log>"
@@ -375,6 +471,7 @@ def make_summary_message(day_obs, instrument):
                 "server closed the connection unexpectedly",
                 "psycopg2.errors.UniqueViolation",
                 "s3transfer.exceptions.RetriesExceededError",
+                "TimeoutInterrupt",
             ],
         )
         if lines:
@@ -474,7 +571,7 @@ def collect_loki_errors(day_obs, instrument, groups):
     """
 
     queries = {
-        "timeout": {
+        "raw_timeout": {
             "match_string": '|= "Timed out waiting for image"',
             "match_string2": '|= "Processing failed"',
         },
@@ -502,12 +599,24 @@ def collect_loki_errors(day_obs, instrument, groups):
             "match_string": '|= "RuntimeError: Unable to retrieve JSON sidecar"',
             "match_string2": '|= "Processing failed"',
         },
+        "json_load": {
+            "match_string": '|= "get_group_id_from_oid" |= "json.load"',
+            "match_string2": '|= "Processing failed"',
+        },
         "unprocessable": {
             "match_string": '|= "RuntimeError: All images rejected as unprocessable"',
             "match_string2": '|= "Processing failed"',
         },
+        "ingest_image": {
+            "match_string": '|= "mwi.ingest_image" |= "ingester"',
+            "match_string2": '|= "Processing failed"',
+        },
         "no_pipeline": {
             "match_string": '|= "NoGoodPipelinesError: No main pipeline graph could be built"',
+            "match_string2": '|= "Processing failed"',
+        },
+        "timeout_interrupt": {
+            "match_string": '|= "activator.exception.TimeoutInterrupt"',
             "match_string2": '|= "Processing failed"',
         },
         "export_outputs": {
@@ -596,8 +705,17 @@ RECURRENT_ERRORS_BY_TASK = {
         "Exception TooManyCosmicRays",
         "Exception TooManyMaskedPixelsError",
         "No valid points to fit. Variance is likely zero",
+        "Schema for Source must contain at least the keys defined by getMinimalSchema",  # DM-53200
+        "Processing timed out",
+    ],
+    "associateSolarSystemDirectSource": [
+        "Exception ValueError: data must be finite, check for nan or inf values",
+    ],
+    "buildTemplate": [
+        "Exception TooManyMaskedPixelsError",
     ],
     "subtractImages": [
+        "Exception InsufficientKernelSourcesError",
         "Exception NoKernelCandidatesError",
         "RuntimeError: Cannot compute PSF matching kernel: too few sources selected",
         "RuntimeError: No good PSF candidates to pass to PSFEx",
@@ -608,7 +726,8 @@ RECURRENT_ERRORS_BY_TASK = {
     ],
     "detectAndMeasureDiaSource": [
         "Exception BadSubtractionError",
-        "ip.diffim.detectAndMeasure.NoDiaSourcesError",
+        "Exception NoDiaSourcesError",
+        "Exception ValueError: RANSAC could not find a valid consensus set",  # DM-52291
     ],
     "associateApdb": [
         "OperationTimedOut",  # cassandra.OperationTimedOut
@@ -618,7 +737,10 @@ RECURRENT_ERRORS_BY_TASK = {
 }
 
 
-def count_recurrent_pipeline_errors(butler, where, task):
+def count_recurrent_pipeline_errors(
+    butler, survey, task, header=True, instrument="LSSTCam"
+):
+    where = f"visit.science_program='{survey}'AND instrument='{instrument}'"
     # with open("error_config.yaml") as f:
     #    RECURRENT_ERRORS_BY_TASK = yaml.safe_load(f)
     recurrent_errors = RECURRENT_ERRORS_BY_TASK.get(task, [])
@@ -642,7 +764,9 @@ def count_recurrent_pipeline_errors(butler, where, task):
             total_count += count
     if lines:
         lines.insert(0, f"    Among {task} errors, {total_count} were")
-    return lines
+        if header:
+            lines.insert(0, f"- {task}:")
+    return total_count, lines
 
 
 def _count_error(errMsg, visit_errors):
@@ -667,11 +791,20 @@ if __name__ == "__main__":
 
     day_obs = date.today() - timedelta(days=1)
     day_obs_string = day_obs.strftime("%Y-%m-%d")
-    summary = make_summary_message(day_obs_string, instrument)
+    summary = make_summary_message(day_obs_string, instrument, "BLOCK-407")
     output_message = (
         f":clamps: *{instrument} {day_obs.strftime('%A %Y-%m-%d')}* :clamps: \n"
+        + "*BLOCK-407*\n"
         + summary
     )
+    summary = make_summary_message(day_obs_string, instrument, "BLOCK-408")
+    output_message += "\n*BLOCK-408*\n" + summary
+    summary = make_summary_message(day_obs_string, instrument, "BLOCK-416")
+    output_message += "\n*BLOCK-416*\n" + summary
+
+    number_alerts = count_alerts(day_obs_string)
+    if number_alerts:
+        output_message += f"\n\nNumber of alerts: {number_alerts}"
 
     if not url:
         print(f"Must set environment variable {webhook} in order to post")
