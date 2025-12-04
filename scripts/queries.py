@@ -361,7 +361,7 @@ def count_alerts(day_obs_string):
     url = "https://prometheus.slac.stanford.edu/api/v1/query_range"
 
     start, end = get_start_end(day_obs_string)
-    topic = "lsst-alerts-v9.0"
+    topic = "lsst-alerts-v10.0"
 
     params = {
         "query": f"sum by (topic) (kafka_topic_partition_current_offset{{"
