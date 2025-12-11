@@ -232,8 +232,11 @@ def make_summary_message(day_obs, instrument, survey=None):
         lines = _count_messages(
             df,
             [
+                "cassandra.ReadFailure: Error from server",
+                "cassandra.ReadTimeout: Error from server",
+                "cassandra.OperationTimedOut",
                 "cassandra.cluster.NoHostAvailable",
-                "Error from server",
+                "TimeoutInterrupt",
             ],
         )
         if lines:
@@ -242,6 +245,14 @@ def make_summary_message(day_obs, instrument, survey=None):
     df, count_total = errors["mpSkyEphemerisQuery"]
     if count_total > 0:
         output_lines.append(f"- {len(df)} failed mpSkyEphemerisQuery.")
+        lines = _count_messages(
+            df,
+            [
+                "Query to the remote ephemerides service failed",  # NoWorkFound
+            ],
+        )
+        if lines:
+            output_lines.extend(lines)
 
     df, _ = errors["microservice_timeout"]
     if len(df) > 0:
@@ -305,6 +316,8 @@ def make_summary_message(day_obs, instrument, survey=None):
         lines = _count_messages(
             df,
             [
+                "prep_butler",
+                "consumer.consume",
                 "RetriableError: Processing timed out",
                 "NonRetriableError: APDB modified",
                 "mwi.export_outputs",
@@ -620,11 +633,11 @@ def collect_loki_errors(day_obs, instrument, groups):
         },
         "cassandra": {
             "match_string": '|= "loadDiaCatalogs" |= "cassandra"',
-            "match_string2": '| json | level="ERROR"',
+            "match_string2": '| json | level="ERROR" | name!= "lsst.dax.apdb.cassandra.cassandra_utils" | name!= "cassandra.cluster"',
         },
         "mpSkyEphemerisQuery": {
-            "match_string": '|= "mpSkyEphemerisQuery" |= "Traceback"',
-            "match_string2": '| json | level="ERROR"',
+            "match_string": '|= "ask \'mpSkyEphemerisQuery\'" |= "failed"',
+            "match_string2": "",
         },
         "microservice_timeout": {
             "match_string": '|= "Timed out connecting to raw microservice"',
@@ -753,9 +766,12 @@ RECURRENT_ERRORS_BY_TASK = {
     ],
     "associateSolarSystemDirectSource": [
         "Exception ValueError: data must be finite, check for nan or inf values",
+        "Exception KeyError: 'diaSourceId'",
+        "Processing timed out",
     ],
     "buildTemplate": [
         "Exception TooManyMaskedPixelsError",
+        "Processing timed out",
     ],
     "subtractImages": [
         "Exception InsufficientKernelSourcesError",
@@ -766,16 +782,22 @@ RECURRENT_ERRORS_BY_TASK = {
         "RuntimeError: No objects passed our cuts for consideration as psf stars",
         "Unable to determine kernel sum; 0 candidates",
         "Could not compute LinearTransform inverse",
+        "Processing timed out",
     ],
     "detectAndMeasureDiaSource": [
         "Exception BadSubtractionError",
         "Exception NoDiaSourcesError",
         "Exception ValueError: RANSAC could not find a valid consensus set",  # DM-52291
+        "Processing timed out",
     ],
     "associateApdb": [
-        "OperationTimedOut",  # cassandra.OperationTimedOut
-        "Control connection failed to connect",  # cassandra.cluster.NoHostAvailable
-        "Error from server",
+        "Exception TooManyDiaObjectsError",
+        "Exception ValueError",
+        'Arguments "names" and "dtype" must match number of columns',  # DM-53600
+        "Exception OperationTimedOut",
+        "Exception WriteTimeout",
+        "Exception NoHostAvailable",
+        "Processing timed out",
     ],
 }
 
