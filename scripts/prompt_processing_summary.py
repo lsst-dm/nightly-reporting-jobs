@@ -421,7 +421,7 @@ def make_summary_message(day_obs, instrument, survey=None):
     count_failed = (
         dia_counts - len(dia_visit_detector) - count_no_apdb - count_failed_sfm
     )
-    if dia_counts > 0 and count_failed > 0:
+    if dia_counts > 0:
         count, lines = count_recurrent_pipeline_errors(b, survey, "subtractImages")
         output_lines.extend(lines)
         count_failed -= count
