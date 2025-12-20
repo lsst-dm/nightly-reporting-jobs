@@ -710,6 +710,7 @@ RECURRENT_ERRORS_BY_TASK = {
     ],
     "associateSolarSystemDirectSource": [
         "Exception ValueError: data must be finite, check for nan or inf values",
+        "Exception KeyError: 'diaSourceId'",
     ],
     "buildTemplate": [
         "Exception TooManyMaskedPixelsError",
@@ -731,6 +732,7 @@ RECURRENT_ERRORS_BY_TASK = {
     ],
     "associateApdb": [
         "Exception TooManyDiaObjectsError",
+        "Exception ValueError",
         'Arguments "names" and "dtype" must match number of columns',  # DM-53600
         "OperationTimedOut",  # cassandra.OperationTimedOut
         "Control connection failed to connect",  # cassandra.cluster.NoHostAvailable
