@@ -105,6 +105,7 @@ def make_summary_message(day_obs, instrument, survey=None):
     groups_without_events = set(groups) - set(next_visits.reset_index()["groupId"])
 
     expected = (len(raw_exposures) - len(groups_without_events)) * active_detectors
+    duplicated_groups = set([group for group in groups if groups.count(group) > 1])
 
     raw_counts = count_datasets(
         butler_nocollection,
@@ -121,6 +122,10 @@ def make_summary_message(day_obs, instrument, survey=None):
     if groups_without_events:
         output_lines.append(
             f"{len(groups_without_events)} raws had no nextVisit: {', '.join(groups_without_events)}"
+        )
+    if duplicated_groups:
+        output_lines.append(
+            f"{len(duplicated_groups)} groups had more than one exposure."
         )
     if len(raw_exposures) == 0:
         return "\n".join(output_lines)
