@@ -7,6 +7,7 @@ import requests
 
 from queries import (
     count_alerts,
+    get_ignored_event_count,
     get_next_visit_events,
     get_nvfo_groups,
     get_no_work_count_from_loki,
@@ -181,6 +182,12 @@ def make_summary_message(day_obs, instrument, survey=None):
     )
     missed = expected - len(log_visit_detector)
 
+    count_ignored = get_ignored_event_count(day_obs, instrument)
+    if count_ignored:
+        output_lines.append(
+            f"- {count_ignored} nextVisit messages were too old and ignored."
+        )
+    #return "\n".join(output_lines)
     errors = collect_loki_errors(day_obs, instrument, groups)
 
     df, count_total = errors["raw_timeout"]

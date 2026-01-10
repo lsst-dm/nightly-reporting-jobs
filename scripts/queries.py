@@ -26,6 +26,7 @@ __all__ = [
     "get_no_work_count_from_loki",
     "get_status_code_from_loki",
     "get_df_from_loki",
+    "get_ignored_event_count",
 ]
 import logging
 import json
@@ -330,6 +331,16 @@ def get_unsupported_surveys_from_loki(day_obs, instrument="LSSTCam"):
         if m:
             unsupported_surveys |= {m["survey"]}
     return unsupported_surveys
+
+
+def get_ignored_event_count(day_obs, instrument="LSSTCam"):
+    """Get a count of nextVisit messaged ignored."""
+    results = query_loki(
+        day_obs,
+        container_name=instrument.lower(),
+        search_string='|= "Message published" |= "old, ignoring"',
+    )
+    return len(results.splitlines())
 
 
 def parse_loki_results(results):
