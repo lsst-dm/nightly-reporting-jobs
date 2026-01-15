@@ -22,10 +22,26 @@ if __name__ == "__main__":
         print(f"collection {collection} exists")
     except MissingCollectionError:
         output_lines.append(
-            f"Collection {day_chain_collection} was not found in embargo_readonly."
+            f"Collection {day_chain_collection} was not found in embargo_readonly :postgresq:."
         )
 
-    output_message = ":postgresq: :fire: " + "\n".join(output_lines)
+    try:
+        params = {
+            "t": 60922,
+            "ra": 185.0622615264663,
+            "dec": 4.171557817649648,
+            "radius": 0.3802237858343,
+            "return_elements": True,
+        }
+        r = requests.get("http://usdf-mpsky.sdf.slac.stanford.edu/ephemerides/", params=params)
+        r.raise_for_status()
+    except requests.RequestException as e:
+        if not hasattr(r, "text") or getattr(r, "status_code") > 400:
+            output_lines.append("MPSky ephemerides service did not respond.")
+        else:
+            print(r.text)
+
+    output_message = ":fire: " + "\n".join(output_lines)
 
     if not output_lines:
         print("All good.")
