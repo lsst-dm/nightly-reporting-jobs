@@ -601,7 +601,7 @@ def collect_loki_errors(day_obs, instrument, groups):
             "match_string2": '| json | level="ERROR"',
         },
         "mpSkyEphemerisQuery": {
-            "match_string": '|= "mpSkyEphemerisQuery" |= "Traceback"',
+            "match_string": '|= "Execution of task \'mpSkyEphemerisQuery\'" |= "failed"',
             "match_string2": '| json | level="ERROR"',
         },
         "microservice_timeout": {
