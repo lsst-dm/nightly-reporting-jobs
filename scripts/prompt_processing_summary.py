@@ -305,6 +305,7 @@ def make_summary_message(day_obs, instrument, survey=None):
         lines = _count_messages(
             df,
             [
+                "prep_butler",
                 "RetriableError: Processing timed out",
                 "NonRetriableError: APDB modified",
                 "mwi.export_outputs",
@@ -723,9 +724,11 @@ RECURRENT_ERRORS_BY_TASK = {
     "associateSolarSystemDirectSource": [
         "Exception ValueError: data must be finite, check for nan or inf values",
         "Exception KeyError: 'diaSourceId'",
+        "Processing timed out",
     ],
     "buildTemplate": [
         "Exception TooManyMaskedPixelsError",
+        "Processing timed out",
     ],
     "subtractImages": [
         "Exception InsufficientKernelSourcesError",
@@ -736,11 +739,13 @@ RECURRENT_ERRORS_BY_TASK = {
         "RuntimeError: No objects passed our cuts for consideration as psf stars",
         "Unable to determine kernel sum; 0 candidates",
         "Could not compute LinearTransform inverse",
+        "Processing timed out",
     ],
     "detectAndMeasureDiaSource": [
         "Exception BadSubtractionError",
         "Exception NoDiaSourcesError",
         "Exception ValueError: RANSAC could not find a valid consensus set",  # DM-52291
+        "Processing timed out",
     ],
     "associateApdb": [
         "Exception TooManyDiaObjectsError",
@@ -749,6 +754,7 @@ RECURRENT_ERRORS_BY_TASK = {
         "OperationTimedOut",  # cassandra.OperationTimedOut
         "Control connection failed to connect",  # cassandra.cluster.NoHostAvailable
         "Error from server",
+        "Processing timed out",
     ],
 }
 
