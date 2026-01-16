@@ -589,7 +589,7 @@ def collect_loki_errors(day_obs, instrument, groups):
             "match_string2": '|= "Processing failed"',
         },
         "mwi_connection": {
-            "match_string": '|= "MiddlewareInterface(_get_central_butler()"',
+            "match_string": '|= "MiddlewareInterface(_get_read_butler()"',
             "match_string2": '|= "Processing failed"',
         },
         "prep_butler": {
