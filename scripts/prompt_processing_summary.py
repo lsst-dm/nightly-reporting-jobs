@@ -306,6 +306,7 @@ def make_summary_message(day_obs, instrument, survey=None):
             df,
             [
                 "prep_butler",
+                "consumer.consume",
                 "RetriableError: Processing timed out",
                 "NonRetriableError: APDB modified",
                 "mwi.export_outputs",
