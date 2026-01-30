@@ -462,12 +462,17 @@ def make_summary_message(day_obs, instrument, survey=None):
             output_lines.append(f"    {count_failed} unspecified")
 
     output_lines.append(
+        f"<https://usdf-rsp.slac.stanford.edu/times-square/|Times Square>"
+    )
+    """
+    output_lines.append(
         f"<https://usdf-rsp.slac.stanford.edu/times-square/github/lsst-dm/vv-team-notebooks/PREOPS-prompt-error-msgs?day_obs={day_obs}&instrument={instrument}&ts_hide_code=1&survey={survey}|Full Error Log>"
     )
 
     output_lines.append(
         f"<https://usdf-rsp.slac.stanford.edu/times-square/github/lsst-sqre/times-square-usdf/prompt-processing/groups?date={day_obs}&instrument={instrument}&survey={survey}&mode=DEBUG&ts_hide_code=1|Timing plots>"
     )
+    """
 
     df, _ = errors["export_outputs"]
     if not df.empty:
