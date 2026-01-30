@@ -476,6 +476,19 @@ def make_summary_message(day_obs, instrument, survey=None):
     )
     """
 
+    df, count_total = errors["provenance_gathering"]
+    if count_total > 0:
+        counted += len(df)
+        output_lines.append(f"- {len(df)} RuntimeError in provenance gathering")
+        lines = _count_messages(
+            df,
+            [
+                "ApPipe",
+            ],
+        )
+        if lines:
+            output_lines.extend(lines)
+
     df, _ = errors["export_outputs"]
     if not df.empty:
         output_lines.append(f"- {len(df)} failure in export_outputs.")
@@ -636,6 +649,10 @@ def collect_loki_errors(day_obs, instrument, groups):
         },
         "timeout_interrupt": {
             "match_string": '|= "activator.exception.TimeoutInterrupt"',
+            "match_string2": '|= "Processing failed"',
+        },
+        "provenance_gathering": { # temporary
+            "match_string": '|= "write_quantum_provenance" |= "RuntimeError"',
             "match_string2": '|= "Processing failed"',
         },
         "export_outputs": {
