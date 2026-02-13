@@ -5,6 +5,7 @@ import lsst.daf.butler as dafButler
 from datetime import date, timedelta
 import requests
 
+from gather_provenance import generate_task_report
 from queries import (
     count_alerts,
     get_ignored_event_count,
@@ -854,6 +855,18 @@ if __name__ == "__main__":
     output_message += "\n*BLOCK-421*\n" + summary
     summary = make_summary_message(day_obs_string, instrument, "BLOCK-T637")
     output_message += "\n*BLOCK-T637*\n" + summary
+
+    butler_nocollection = dafButler.Butler("embargo")
+    collections = butler_nocollection.collections.query(
+        f"{instrument}/prompt/output-{day_obs_string}/Ap*"
+    )
+    if collections:
+        table = generate_task_report(butler_nocollection, collections[0])
+        output_lines = [
+            "Task report from ApPipe run provenance:",
+        ]
+        output_lines.extend(table.pformat())
+        output_message += "\n\n```\n" + "\n".join(output_lines) + "\n```"
 
     number_alerts = count_alerts(day_obs_string)
     if number_alerts:
