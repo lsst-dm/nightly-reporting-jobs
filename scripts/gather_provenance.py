@@ -25,6 +25,7 @@ __all__ = [
 import logging
 
 from astropy.table import Table
+import numpy as np
 
 from lsst.pipe.base.quantum_graph import ProvenanceQuantumGraph
 
@@ -150,9 +151,9 @@ def generate_task_report(butler, collection):
     column_names = [
         "task",
         "count",
-        "mean_runtime",
+        "med_runtime",
         "max_runtime",
-        "mean_memory",
+        "med_memory",
         "max_memory",
     ]
     column_types = ["S20", "u4", "f8", "f8", "f8", "f8"]
@@ -166,12 +167,12 @@ def generate_task_report(butler, collection):
 
         count = len(values_runtime)
         if count > 0:
-            mean_runtime = round(values_runtime.mean(), 1)
+            med_runtime = round(np.median(values_runtime), 1)
             max_runtime = round(values_runtime.max(), 1)
-            mean_memory = round(values_memory.mean(), 1)
+            med_memory = round(np.median(values_memory), 1)
             max_memory = round(values_memory.max(), 1)
             statistics_table.add_row(
-                [task_name, count, mean_runtime, max_runtime, mean_memory, max_memory]
+                [task_name, count, med_runtime, max_runtime, med_memory, max_memory]
             )
         else:
             statistics_table.add_row(
