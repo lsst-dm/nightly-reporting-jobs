@@ -68,9 +68,9 @@ def parse_provenance(pqg):
             ["quantum_id", "prep_time", "init_time", "run_time_cpu", "start"]
         )
         if len(t) != 1:
-            raise ValueError(
-                f"Expected one row in the table for task '{task}', but got {len(t)} rows."
-            )
+            # This can happen if some tasks turn out to be no work and dropped.
+            _log.info(f"Partial NoWork at {task}: {pqg.quanta_by_task}")
+            continue
 
         quanta = pqg.quanta_by_task[task]
         if len(quanta) != 1:  # This should be true in PP
