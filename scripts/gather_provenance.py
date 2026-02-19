@@ -21,6 +21,7 @@
 
 __all__ = [
     "generate_task_report",
+    "get_package_tag",
 ]
 import logging
 
@@ -186,3 +187,21 @@ def generate_task_report(butler, collection):
                 ]
             )
     return statistics_table
+
+
+def get_package_tag(butler, collection):
+    refs = butler.query_datasets(
+        "prompt_provenance",
+        collections=collection,
+        limit=1,
+        find_first=False,
+        explain=False,
+    )
+    if refs:
+        pkg = butler.get(
+            "prompt_provenance.packages", collections=collection, dataId=refs[0].dataId
+        )
+        return pkg.get("lsst_distrib")
+    else:
+        _log.info(f"No provenance found in {collection}")
+        return None

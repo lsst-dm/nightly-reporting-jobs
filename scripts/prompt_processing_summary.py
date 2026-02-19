@@ -5,7 +5,7 @@ import lsst.daf.butler as dafButler
 from datetime import date, timedelta
 import requests
 
-from gather_provenance import generate_task_report
+from gather_provenance import generate_task_report, get_package_tag
 from queries import (
     count_alerts,
     get_ignored_event_count,
@@ -860,10 +860,11 @@ if __name__ == "__main__":
     collections = butler_nocollection.collections.query(
         f"{instrument}/prompt/output-{day_obs_string}/Ap*"
     )
-    if collections:
+    tag = get_package_tag(butler_nocollection, collections[0])
+    if tag:
         table = generate_task_report(butler_nocollection, collections[0])
         output_lines = [
-            "Task report from ApPipe run provenance:",
+            f"Task report from ApPipe run provenance: stack tag :{tag}",
         ]
         output_lines.extend(table.pformat())
         output_message += "\n\n```\n" + "\n".join(output_lines) + "\n```"
