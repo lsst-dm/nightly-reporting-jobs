@@ -103,6 +103,8 @@ def make_summary_message(day_obs, instrument, survey=None):
         explain=False,
         limit=None,
     )
+    if len(raw_exposures) == 0:
+        return ""
     groups = [r.group for r in raw_exposures]
     groups_without_events = set(groups) - set(next_visits.reset_index()["groupId"])
 
@@ -129,8 +131,6 @@ def make_summary_message(day_obs, instrument, survey=None):
         output_lines.append(
             f"{len(duplicated_groups)} groups had more than one exposure."
         )
-    if len(raw_exposures) == 0:
-        return "\n".join(output_lines)
 
     try:
         collections = butler_nocollection.collections.query(
@@ -837,24 +837,15 @@ if __name__ == "__main__":
 
     day_obs = date.today() - timedelta(days=1)
     day_obs_string = day_obs.strftime("%Y-%m-%d")
-    summary = make_summary_message(day_obs_string, instrument, "BLOCK-407")
     output_message = (
         f":clamps: *{instrument} {day_obs.strftime('%A %Y-%m-%d')}* :clamps: \n"
-        + "*BLOCK-407*\n"
-        + summary
     )
-    summary = make_summary_message(day_obs_string, instrument, "BLOCK-408")
-    output_message += "\n*BLOCK-408*\n" + summary
-    summary = make_summary_message(day_obs_string, instrument, "BLOCK-416")
-    output_message += "\n*BLOCK-416*\n" + summary
-    summary = make_summary_message(day_obs_string, instrument, "BLOCK-417")
-    output_message += "\n*BLOCK-417*\n" + summary
-    summary = make_summary_message(day_obs_string, instrument, "BLOCK-419")
-    output_message += "\n*BLOCK-419*\n" + summary
-    summary = make_summary_message(day_obs_string, instrument, "BLOCK-421")
-    output_message += "\n*BLOCK-421*\n" + summary
-    summary = make_summary_message(day_obs_string, instrument, "BLOCK-T637")
-    output_message += "\n*BLOCK-T637*\n" + summary
+
+    blocks = ["BLOCK-407", "BLOCK-408", "BLOCK-416", "BLOCK-417", "BLOCK-419", "BLOCK-421", "BLOCK-T637"]
+    for block in blocks:
+        summary = make_summary_message(day_obs_string, instrument, block)
+        if summary:
+            output_message += f"\n*{block}*\n{summary}"
 
     butler_nocollection = dafButler.Butler("embargo")
     collections = butler_nocollection.collections.query(
