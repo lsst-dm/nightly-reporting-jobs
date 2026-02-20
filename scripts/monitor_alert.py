@@ -60,8 +60,8 @@ if not kafka_password:
 conf = {
     "bootstrap.servers": "usdf-alert-stream-dev.lsst.cloud:9094",
     "group.id": "kafka-alert-consumer-k8s",
-    "auto.offset.reset": "earliest",  # TEST
-    "enable.auto.commit": False,  # TEST
+    "auto.offset.reset": "latest",
+    "enable.auto.commit": True,
     "security.protocol": "SASL_PLAINTEXT",
     "sasl.mechanism": "SCRAM-SHA-512",
     "sasl.username": "kafka-admin",
