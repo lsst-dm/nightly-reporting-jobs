@@ -847,19 +847,6 @@ if __name__ == "__main__":
         if summary:
             output_message += f"\n*{block}*\n{summary}"
 
-    butler_nocollection = dafButler.Butler("embargo")
-    collections = butler_nocollection.collections.query(
-        f"{instrument}/prompt/output-{day_obs_string}/Ap*"
-    )
-    tag = get_package_tag(butler_nocollection, collections[0])
-    if tag:
-        table = generate_task_report(butler_nocollection, collections[0])
-        output_lines = [
-            f"Task report from ApPipe run provenance: stack tag :{tag}",
-        ]
-        output_lines.extend(table.pformat())
-        output_message += "\n\n```\n" + "\n".join(output_lines) + "\n```"
-
     number_alerts = count_alerts(day_obs_string)
     if number_alerts:
         output_message += f"\n\nNumber of alerts: {number_alerts}"
