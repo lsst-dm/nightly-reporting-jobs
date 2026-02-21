@@ -1,5 +1,12 @@
 ARG STACK_TAG="w_latest"
 FROM ghcr.io/lsst/scipipe:al9-${STACK_TAG}
+USER lsst
+RUN <<EOT
+  set -ex
+  source /opt/lsst/software/stack/loadLSST.bash
+  conda install -c conda-forge lsst-efd-client
+EOT
+
 USER root
 RUN <<EOT
   set -ex
@@ -7,11 +14,10 @@ RUN <<EOT
   rpm -i logcli-2.9.9.x86_64.rpm
   rm logcli-2.9.9.x86_64.rpm
 EOT
-USER lsst
+
+RUN groupadd -g 4085 -o rubin_users \
+    && useradd -u 17951 -g 4085 lsstsvc1
+USER lsstsvc1
+
 WORKDIR /
 COPY scripts scripts/
-RUN <<EOT
-  set -ex
-  source /opt/lsst/software/stack/loadLSST.bash
-  conda install -c conda-forge lsst-efd-client
-EOT
