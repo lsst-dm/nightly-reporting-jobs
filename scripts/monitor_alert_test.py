@@ -83,6 +83,9 @@ OUTPUT_DIR = os.environ.get("OUTPUT_DIR", ".")  # Default to current directory
 
 def write_json_files():
     """Write JSON files grouped by day_obs"""
+    # Generate unique suffix using timestamp
+    timestamp_suffix = str(int(time.time() * 1000))  # milliseconds since epoch
+
     # Group visits by day_obs
     dayobs_groups = defaultdict(dict)
 
@@ -93,7 +96,7 @@ def write_json_files():
 
     # Write a file for each day_obs
     for day_obs, seqnum_data in dayobs_groups.items():
-        filename = f"{OUTPUT_DIR}/metadata-dayObs_{day_obs}_alert_count.json"
+        filename = f"{OUTPUT_DIR}/metadata-dayObs_{day_obs}_alert_count_{timestamp_suffix}.json"
         try:
             with open(filename, "w") as f:
                 json.dump(seqnum_data, f, indent=2)
