@@ -8,6 +8,12 @@ import time
 import signal
 import sys
 
+from lsst.daf.butler import Butler
+
+from estimate_coverage import count_detectors_with_templates
+
+butler = Butler("embargo_readonly")
+
 # Graceful shutdown handler
 shutdown = False
 
@@ -71,8 +77,8 @@ conf = {
 consumer = Consumer(conf)
 consumer.subscribe(["lsst-alerts-v10.0"])
 
-# Track visits with their alert counts and last seen time
-visit_data = defaultdict(lambda: {"count": 0, "last_seen": 0})
+# Track visits with their alert counts, last seen time, and the detector count with template coverage
+visit_data = defaultdict(lambda: {"count": 0, "last_seen": 0, "detector_count": None})
 total_messages = 0
 last_summary_time = time.time()
 
@@ -92,7 +98,10 @@ def write_json_files():
     for visit_id, data in visit_data.items():
         day_obs = visit_to_dayobs(visit_id)
         seqnum = visit_to_seqnum(visit_id)
-        dayobs_groups[day_obs][str(seqnum)] = {"Alert Count": data["count"]}
+        entry = {"Alert Count": data["count"]}
+        if data["detector_count"] is not None:
+            entry["Detector Count"] = data["detector_count"]
+        dayobs_groups[day_obs][str(seqnum)] = entry
 
     # Write a file for each day_obs
     for day_obs, seqnum_data in dayobs_groups.items():
@@ -130,8 +139,9 @@ def print_summary():
         # Sort by visit ID
         for visit_id in sorted(visit_data.keys()):
             count = visit_data[visit_id]["count"]
+            detector_count = visit_data[visit_id]["detector_count"]
             print(
-                f'{{"visit": {visit_id}, "alert_count": {count}, "day_obs": {visit_to_dayobs(visit_id)}, "seqnum": {visit_to_seqnum(visit_id)}}}'
+                f'{{"visit": {visit_id}, "alert_count": {count}, "detector_count": {detector_count}, "day_obs": {visit_to_dayobs(visit_id)}, "seqnum": {visit_to_seqnum(visit_id)}}}'
             )
     else:
         print("\nNo active visits")
@@ -174,6 +184,18 @@ try:
 
         visit_data[visit]["count"] += 1
         visit_data[visit]["last_seen"] = current_time
+        if visit_data[visit]["detector_count"] is None:
+            try:
+                detector_count = count_detectors_with_templates(butler, visit)
+                visit_data[visit]["detector_count"] = detector_count
+                print(
+                    f"[INFO] Visit {visit}: calculated detector_count = {detector_count}"
+                )
+            except Exception as e:
+                print(
+                    f"[WARNING] Failed to calculate detector_count for visit {visit}: {e}"
+                )
+
         total_messages += 1
 
         # Check if it's time for periodic summary
@@ -197,8 +219,9 @@ finally:
     if visit_data:
         for visit_id in sorted(visit_data.keys()):
             count = visit_data[visit_id]["count"]
+            detector_count = visit_data[visit_id]["detector_count"]
             print(
-                f'{{"visit": {visit_id}, "alert_count": {count}, "day_obs": {visit_to_dayobs(visit_id)}, "seqnum": {visit_to_seqnum(visit_id)}}}'
+                f'{{"visit": {visit_id}, "alert_count": {count}, "detector_count": {detector_count}, "day_obs": {visit_to_dayobs(visit_id)}, "seqnum": {visit_to_seqnum(visit_id)}}}'
             )
     else:
         print("\nNo visits recorded")
