@@ -100,7 +100,7 @@ def write_json_files():
         seqnum = visit_to_seqnum(visit_id)
         entry = {"Alert Count": data["count"]}
         if data["detector_count"] is not None:
-            entry["Detector Count"] = data["detector_count"]
+            entry["PP Expected Detectors"] = data["detector_count"]
         dayobs_groups[day_obs][str(seqnum)] = entry
 
     # Write a file for each day_obs
