@@ -487,6 +487,11 @@ def make_summary_message(day_obs, instrument, survey=None):
         if lines:
             output_lines.extend(lines)
 
+    df, count_total = errors["broker_transport"]
+    if count_total > 0:
+        counted += len(df)
+        output_lines.append(f"- {len(df)} Broker transport failure")
+
     df, _ = errors["export_outputs"]
     if not df.empty:
         output_lines.append(f"- {len(df)} failure in export_outputs.")
@@ -652,6 +657,10 @@ def collect_loki_errors(day_obs, instrument, groups):
         "provenance_gathering": {
             "match_string": '|= "write_quantum_provenance" |= "RuntimeError"',
             "match_string2": '|= "Processing failed"',
+        },
+        "broker_transport": {
+            "match_string": '|= "Broker transport failure" |= "alertPackager"',
+            "match_string2": '|= "associateApdb"',
         },
         "export_outputs": {
             "match_string": '|= "export_outputs"',
