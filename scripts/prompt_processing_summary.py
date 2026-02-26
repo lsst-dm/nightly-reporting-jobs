@@ -233,8 +233,11 @@ def make_summary_message(day_obs, instrument, survey=None):
         lines = _count_messages(
             df,
             [
+                "cassandra.ReadFailure: Error from server",
+                "cassandra.ReadTimeout: Error from server",
+                "cassandra.OperationTimedOut",
                 "cassandra.cluster.NoHostAvailable",
-                "Error from server",
+                "TimeoutInterrupt",
             ],
         )
         if lines:
@@ -623,7 +626,7 @@ def collect_loki_errors(day_obs, instrument, groups):
         },
         "cassandra": {
             "match_string": '|= "loadDiaCatalogs" |= "cassandra"',
-            "match_string2": '| json | level="ERROR"',
+            "match_string2": '| json | level="ERROR" | name!= "lsst.dax.apdb.cassandra.cassandra_utils" | name!= "cassandra.cluster"',
         },
         "mpSkyEphemerisQuery": {
             "match_string": '|= "Execution of task \'mpSkyEphemerisQuery\'" |= "failed"',
