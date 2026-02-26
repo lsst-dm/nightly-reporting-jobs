@@ -787,9 +787,9 @@ RECURRENT_ERRORS_BY_TASK = {
         "Exception TooManyDiaObjectsError",
         "Exception ValueError",
         'Arguments "names" and "dtype" must match number of columns',  # DM-53600
-        "OperationTimedOut",  # cassandra.OperationTimedOut
-        "Control connection failed to connect",  # cassandra.cluster.NoHostAvailable
-        "Error from server",
+        "Exception OperationTimedOut",
+        "Exception WriteTimeout",
+        "Exception NoHostAvailable",
         "Processing timed out",
     ],
 }
