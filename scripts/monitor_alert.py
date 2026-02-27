@@ -78,6 +78,32 @@ last_summary_time = time.time()
 
 SUMMARY_INTERVAL = int(os.environ.get("SUMMARY_INTERVAL", "60"))  # Default 1 minute
 EXPIRY_TIME = int(os.environ.get("EXPIRY_TIME", "600"))  # Default 10 minutes
+OUTPUT_DIR = os.environ.get("OUTPUT_DIR", ".")  # Default to current directory
+
+
+def write_json_files():
+    """Write JSON files grouped by day_obs"""
+    # Generate unique suffix using timestamp
+    timestamp_suffix = str(int(time.time() * 1000))  # milliseconds since epoch
+
+    # Group visits by day_obs
+    dayobs_groups = defaultdict(dict)
+
+    for visit_id, data in visit_data.items():
+        day_obs = visit_to_dayobs(visit_id)
+        seqnum = visit_to_seqnum(visit_id)
+        dayobs_groups[day_obs][str(seqnum)] = {"Alert Count": data["count"]}
+
+    # Write a file for each day_obs
+    for day_obs, seqnum_data in dayobs_groups.items():
+        filename = f"{OUTPUT_DIR}/metadata-dayObs_{day_obs}_alert_count_{timestamp_suffix}.json"
+
+        try:
+            with open(filename, "w") as f:
+                json.dump(seqnum_data, f, indent=2)
+            print(f"Written {filename} with {len(seqnum_data)} sequences")
+        except Exception as e:
+            print(f"[ERROR] Failed to write {filename}: {e}")
 
 
 def print_summary():
@@ -112,10 +138,14 @@ def print_summary():
 
     print("=" * 60 + "\n")
 
+    # Write JSON files
+    write_json_files()
+
 
 print(f"Starting continuous consumer...")
 print(f"- Summary interval: {SUMMARY_INTERVAL} seconds (1 minute)")
 print(f"- Visit expiry: {EXPIRY_TIME} seconds (10 minutes)")
+print(f"- Output directory: {OUTPUT_DIR}")
 print("Waiting for messages...\n")
 
 try:
@@ -174,3 +204,6 @@ finally:
         print("\nNo visits recorded")
 
     print("=" * 60)
+
+    # Write final JSON files
+    write_json_files()
