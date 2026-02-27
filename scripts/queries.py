@@ -112,6 +112,40 @@ async def get_next_visit_events(day_obs, instrument, survey=None):
     return df, canceled
 
 
+async def get_alert_latency(day_obs, instrument):
+    """Obtain alert latency from pipelines timing metrics
+
+    Parameters
+    ----------
+    day_obs : `str`
+        day_obs in the format of YYYY-MM-DD.
+
+    instrument : `str`
+        The instrument name.
+
+    Returns
+    -------
+    median : `float`
+        Median alert timing since shutter close in seconds.
+    count : `int`
+        The number of metrics.
+    """
+    client = EfdClient("usdfdev_efd", db_name="lsst.prompt")
+    start, end = get_start_end(day_obs)
+    df = await client.select_time_series(
+        "lsst.prompt.prod.associationTimingMetrics",
+        ["alert_timing_since_shutter_close"],
+        start.utc,
+        end.utc,
+    )
+    if df.empty:
+        _log.info(f"No timing metrics on {day_obs}")
+        return None, 0
+    else:
+        median = df["alert_timing_since_shutter_close"].median()
+        return median, len(df)
+
+
 def query_loki(day_obs, container_name, search_string):
     """Query Grafana Loki for log records.
 

@@ -7,6 +7,7 @@ import requests
 
 from queries import (
     count_alerts,
+    get_alert_latency,
     get_ignored_event_count,
     get_next_visit_events,
     get_nvfo_groups,
@@ -877,6 +878,9 @@ if __name__ == "__main__":
     number_alerts = count_alerts(day_obs_string)
     if number_alerts:
         output_message += f"\n\nNumber of alerts: {number_alerts}"
+    alert_latency, count = asyncio.run(get_alert_latency(day_obs_string, instrument))
+    if count > 0:
+        output_message += f"\n- Median alert latency: {alert_latency:.1f} seconds ({count} metric records)"
 
     if not url:
         print(f"Must set environment variable {webhook} in order to post")
