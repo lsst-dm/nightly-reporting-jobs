@@ -145,8 +145,10 @@ def make_summary_message(day_obs, instrument, survey=None):
     group_nvfo_missed = set(groups) - set(groups_nvfo)
     if group_nvfo_missed:
         output_lines.append(
-            f"- {len(group_nvfo_missed)} raw groups were not received by NVFO."
+            f"- {len(group_nvfo_missed)} raw groups were not received by NVFO"
+            " (caveat: known to show false positive when Loki returns incomplete data)"
         )
+        print(f"group_nvfo_missed: {group_nvfo_missed}")
 
     isr_counts, sfm_counts, dia_counts = count_pipeline_outputs(
         butler_nocollection,
