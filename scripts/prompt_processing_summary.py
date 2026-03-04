@@ -7,6 +7,8 @@ import requests
 
 from queries import (
     count_alerts,
+    get_alert_latency,
+    get_ignored_event_count,
     get_next_visit_events,
     get_nvfo_groups,
     get_no_work_count_from_loki,
@@ -101,10 +103,13 @@ def make_summary_message(day_obs, instrument, survey=None):
         explain=False,
         limit=None,
     )
+    if len(raw_exposures) == 0:
+        return ""
     groups = [r.group for r in raw_exposures]
     groups_without_events = set(groups) - set(next_visits.reset_index()["groupId"])
 
     expected = (len(raw_exposures) - len(groups_without_events)) * active_detectors
+    duplicated_groups = set([group for group in groups if groups.count(group) > 1])
 
     raw_counts = count_datasets(
         butler_nocollection,
@@ -122,8 +127,10 @@ def make_summary_message(day_obs, instrument, survey=None):
         output_lines.append(
             f"{len(groups_without_events)} raws had no nextVisit: {', '.join(groups_without_events)}"
         )
-    if len(raw_exposures) == 0:
-        return "\n".join(output_lines)
+    if duplicated_groups:
+        output_lines.append(
+            f"{len(duplicated_groups)} groups had more than one exposure."
+        )
 
     try:
         collections = butler_nocollection.collections.query(
@@ -176,6 +183,12 @@ def make_summary_message(day_obs, instrument, survey=None):
     )
     missed = expected - len(log_visit_detector)
 
+    count_ignored = get_ignored_event_count(day_obs, instrument)
+    if count_ignored:
+        output_lines.append(
+            f"- {count_ignored} nextVisit messages were too old and ignored."
+        )
+    #return "\n".join(output_lines)
     errors = collect_loki_errors(day_obs, instrument, groups)
 
     df, count_total = errors["raw_timeout"]
@@ -220,8 +233,11 @@ def make_summary_message(day_obs, instrument, survey=None):
         lines = _count_messages(
             df,
             [
+                "cassandra.ReadFailure: Error from server",
+                "cassandra.ReadTimeout: Error from server",
+                "cassandra.OperationTimedOut",
                 "cassandra.cluster.NoHostAvailable",
-                "Error from server",
+                "TimeoutInterrupt",
             ],
         )
         if lines:
@@ -230,6 +246,14 @@ def make_summary_message(day_obs, instrument, survey=None):
     df, count_total = errors["mpSkyEphemerisQuery"]
     if count_total > 0:
         output_lines.append(f"- {len(df)} failed mpSkyEphemerisQuery.")
+        lines = _count_messages(
+            df,
+            [
+                "Query to the remote ephemerides service failed",  # NoWorkFound
+            ],
+        )
+        if lines:
+            output_lines.extend(lines)
 
     df, _ = errors["microservice_timeout"]
     if len(df) > 0:
@@ -293,6 +317,8 @@ def make_summary_message(day_obs, instrument, survey=None):
         lines = _count_messages(
             df,
             [
+                "prep_butler",
+                "consumer.consume",
                 "RetriableError: Processing timed out",
                 "NonRetriableError: APDB modified",
                 "mwi.export_outputs",
@@ -421,7 +447,7 @@ def make_summary_message(day_obs, instrument, survey=None):
     count_failed = (
         dia_counts - len(dia_visit_detector) - count_no_apdb - count_failed_sfm
     )
-    if dia_counts > 0 and count_failed > 0:
+    if dia_counts > 0:
         count, lines = count_recurrent_pipeline_errors(b, survey, "subtractImages")
         output_lines.extend(lines)
         count_failed -= count
@@ -450,12 +476,35 @@ def make_summary_message(day_obs, instrument, survey=None):
             output_lines.append(f"    {count_failed} unspecified")
 
     output_lines.append(
+        f"<https://usdf-rsp.slac.stanford.edu/times-square/|Times Square>"
+    )
+    """
+    output_lines.append(
         f"<https://usdf-rsp.slac.stanford.edu/times-square/github/lsst-dm/vv-team-notebooks/PREOPS-prompt-error-msgs?day_obs={day_obs}&instrument={instrument}&ts_hide_code=1&survey={survey}|Full Error Log>"
     )
 
     output_lines.append(
         f"<https://usdf-rsp.slac.stanford.edu/times-square/github/lsst-sqre/times-square-usdf/prompt-processing/groups?date={day_obs}&instrument={instrument}&survey={survey}&mode=DEBUG&ts_hide_code=1|Timing plots>"
     )
+    """
+
+    df, count_total = errors["provenance_gathering"]
+    if count_total > 0:
+        counted += len(df)
+        output_lines.append(f"- {len(df)} RuntimeError in provenance gathering")
+        lines = _count_messages(
+            df,
+            [
+                "ApPipe",
+            ],
+        )
+        if lines:
+            output_lines.extend(lines)
+
+    df, count_total = errors["broker_transport"]
+    if count_total > 0:
+        counted += len(df)
+        output_lines.append(f"- {len(df)} Broker transport failure")
 
     df, _ = errors["export_outputs"]
     if not df.empty:
@@ -576,7 +625,7 @@ def collect_loki_errors(day_obs, instrument, groups):
             "match_string2": '|= "Processing failed"',
         },
         "mwi_connection": {
-            "match_string": '|= "MiddlewareInterface(_get_central_butler()"',
+            "match_string": '|= "MiddlewareInterface(_get_read_butler()"',
             "match_string2": '|= "Processing failed"',
         },
         "prep_butler": {
@@ -585,11 +634,11 @@ def collect_loki_errors(day_obs, instrument, groups):
         },
         "cassandra": {
             "match_string": '|= "loadDiaCatalogs" |= "cassandra"',
-            "match_string2": '| json | level="ERROR"',
+            "match_string2": '| json | level="ERROR" | name!= "lsst.dax.apdb.cassandra.cassandra_utils" | name!= "cassandra.cluster"',
         },
         "mpSkyEphemerisQuery": {
-            "match_string": '|= "mpSkyEphemerisQuery" |= "Traceback"',
-            "match_string2": '| json | level="ERROR"',
+            "match_string": '|= "ask \'mpSkyEphemerisQuery\'" |= "failed"',
+            "match_string2": "",
         },
         "microservice_timeout": {
             "match_string": '|= "Timed out connecting to raw microservice"',
@@ -618,6 +667,14 @@ def collect_loki_errors(day_obs, instrument, groups):
         "timeout_interrupt": {
             "match_string": '|= "activator.exception.TimeoutInterrupt"',
             "match_string2": '|= "Processing failed"',
+        },
+        "provenance_gathering": {
+            "match_string": '|= "write_quantum_provenance" |= "RuntimeError"',
+            "match_string2": '|= "Processing failed"',
+        },
+        "broker_transport": {
+            "match_string": '|= "Broker transport failure" |= "alertPackager"',
+            "match_string2": '|= "associateApdb"',
         },
         "export_outputs": {
             "match_string": '|= "export_outputs"',
@@ -710,9 +767,12 @@ RECURRENT_ERRORS_BY_TASK = {
     ],
     "associateSolarSystemDirectSource": [
         "Exception ValueError: data must be finite, check for nan or inf values",
+        "Exception KeyError: 'diaSourceId'",
+        "Processing timed out",
     ],
     "buildTemplate": [
         "Exception TooManyMaskedPixelsError",
+        "Processing timed out",
     ],
     "subtractImages": [
         "Exception InsufficientKernelSourcesError",
@@ -723,16 +783,22 @@ RECURRENT_ERRORS_BY_TASK = {
         "RuntimeError: No objects passed our cuts for consideration as psf stars",
         "Unable to determine kernel sum; 0 candidates",
         "Could not compute LinearTransform inverse",
+        "Processing timed out",
     ],
     "detectAndMeasureDiaSource": [
         "Exception BadSubtractionError",
         "Exception NoDiaSourcesError",
         "Exception ValueError: RANSAC could not find a valid consensus set",  # DM-52291
+        "Processing timed out",
     ],
     "associateApdb": [
-        "OperationTimedOut",  # cassandra.OperationTimedOut
-        "Control connection failed to connect",  # cassandra.cluster.NoHostAvailable
-        "Error from server",
+        "Exception TooManyDiaObjectsError",
+        "Exception ValueError",
+        'Arguments "names" and "dtype" must match number of columns',  # DM-53600
+        "Exception OperationTimedOut",
+        "Exception WriteTimeout",
+        "Exception NoHostAvailable",
+        "Processing timed out",
     ],
 }
 
@@ -791,20 +857,30 @@ if __name__ == "__main__":
 
     day_obs = date.today() - timedelta(days=1)
     day_obs_string = day_obs.strftime("%Y-%m-%d")
-    summary = make_summary_message(day_obs_string, instrument, "BLOCK-407")
     output_message = (
         f":clamps: *{instrument} {day_obs.strftime('%A %Y-%m-%d')}* :clamps: \n"
-        + "*BLOCK-407*\n"
-        + summary
     )
-    summary = make_summary_message(day_obs_string, instrument, "BLOCK-408")
-    output_message += "\n*BLOCK-408*\n" + summary
-    summary = make_summary_message(day_obs_string, instrument, "BLOCK-416")
-    output_message += "\n*BLOCK-416*\n" + summary
+
+    blocks = [
+        "BLOCK-407",
+        "BLOCK-408",
+        "BLOCK-416",
+        "BLOCK-417",
+        "BLOCK-419",
+        "BLOCK-421",
+        "BLOCK-T637",
+    ]
+    for block in blocks:
+        summary = make_summary_message(day_obs_string, instrument, block)
+        if summary:
+            output_message += f"\n*{block}*\n{summary}"
 
     number_alerts = count_alerts(day_obs_string)
     if number_alerts:
         output_message += f"\n\nNumber of alerts: {number_alerts}"
+    alert_latency, count = asyncio.run(get_alert_latency(day_obs_string, instrument))
+    if count > 0:
+        output_message += f"\n- Median alert latency: {alert_latency:.1f} seconds ({count} metric records)"
 
     if not url:
         print(f"Must set environment variable {webhook} in order to post")

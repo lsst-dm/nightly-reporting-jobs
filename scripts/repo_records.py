@@ -21,11 +21,11 @@ if __name__ == "__main__":
     output_message = (
         f":rice_ball: *{now.strftime('%A %Y-%m-%dT%H:%M')}* :rice_ball: \n"
         + "```"
-        + "\n".join(table1.pformat(align="<", max_lines=-1))
+        + "\n".join(table2.pformat(align="<", max_lines=-1))
         + "```"
         + "\n"
         + "```"
-        + "\n".join(table2.pformat(align="<", max_lines=-1))
+        + "\n".join(table1.pformat(align="<", max_lines=-1))
         + "```"
     )
 
