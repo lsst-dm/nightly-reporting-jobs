@@ -1,6 +1,6 @@
 """estimate_from_logs.py - Extract visit processing stats from log aggregation."""
 
-__all__ = ["count_detectors_from_logs"]
+__all__ = ["count_detectors_from_logs", "get_detector_timelines"]
 
 import json
 import re
@@ -203,6 +203,210 @@ def _empty_stats():
         stats[f"avg_relative_time_{checkpoint_name}"] = None
 
     return stats
+
+
+def get_detector_timelines(
+    butler, visit_id, namespace="vcluster--usdf-prompt-processing", container="lsstcam"
+):
+    """Get per-detector timeline data for plotting.
+
+    Parameters
+    ----------
+    butler : `lsst.daf.butler.Butler`
+        Butler instance to query for exposure records.
+    visit_id : `int`
+        Visit ID to check.
+    namespace : `str`, optional
+        Kubernetes namespace for the logs.
+    container : `str`, optional
+        Container name for the logs.
+
+    Returns
+    -------
+    timeline_data : `dict`
+        Dictionary with keys:
+        - 'detectors': List of detector IDs that have data
+        - 'reference_time': The reference timestamp used
+        - 'time_reference_name': Name of the reference (e.g., "exposure_end")
+        - 'start_times': Dict mapping detector -> relative start time
+        - 'finish_times': Dict mapping detector -> relative finish time
+        - 'checkpoint_times': Dict mapping checkpoint_name -> dict(detector -> relative time)
+        - 'durations': Dict mapping detector -> actual duration (start to finish)
+        - 'pipelines': Dict mapping detector -> pipeline name
+    """
+    # Get exposure record
+    try:
+        exp_record = list(
+            butler.query_dimension_records(
+                "exposure", instrument="LSSTCam", visit=visit_id
+            )
+        )[0]
+    except EmptyQueryResultError:
+        return {
+            "detectors": [],
+            "reference_time": None,
+            "time_reference_name": TIME_REFERENCE if TIME_REFERENCE else "start",
+            "start_times": {},
+            "finish_times": {},
+            "checkpoint_times": {},
+            "durations": {},
+            "pipelines": {},
+        }
+
+    group_id = exp_record.group
+
+    # Get exposure end time if needed
+    exposure_end_timestamp = None
+    if exp_record.timespan and exp_record.timespan.end:
+        exposure_end_dt = exp_record.timespan.end.utc.datetime
+        if exposure_end_dt.tzinfo is None:
+            exposure_end_dt = exposure_end_dt.replace(tzinfo=timezone.utc)
+        exposure_end_timestamp = exposure_end_dt.timestamp()
+
+    # Define time range for log query
+    if exp_record.timespan and exp_record.timespan.begin:
+        start_time = exp_record.timespan.begin.tai.unix - 3600
+        end_time = start_time + 7200
+        time_range = (start_time, end_time)
+    else:
+        time_range = None
+
+    # Query logs
+    try:
+        log_records = loki_query(group_id, time_range, namespace, container)
+    except Exception as e:
+        print(f"Log query error: {e}")
+        return {
+            "detectors": [],
+            "reference_time": None,
+            "time_reference_name": TIME_REFERENCE if TIME_REFERENCE else "start",
+            "start_times": {},
+            "finish_times": {},
+            "checkpoint_times": {},
+            "durations": {},
+            "pipelines": {},
+        }
+
+    # Parse log records
+    detector_start_times = {}  # detector -> asctime string
+    detector_finish_times = {}
+    detector_checkpoint_times = {name: {} for name in MIDDLE_PHRASES.keys()}
+    detector_pipelines = {}  # detector -> pipeline name
+
+    for record in log_records:
+        message = record.get("message", "")
+        detector = record.get("detector")
+        asctime = record.get("asctime")
+
+        if START_PHRASE in message:
+            if detector is not None and asctime:
+                detector_start_times[detector] = asctime
+
+        for checkpoint_name, checkpoint_phrase in MIDDLE_PHRASES.items():
+            if checkpoint_phrase in message:
+                if detector is not None and asctime:
+                    detector_checkpoint_times[checkpoint_name][detector] = asctime
+
+        pipeline_match = re.search(PIPELINE_PATTERN, message)
+        if pipeline_match:
+            pipeline_name = pipeline_match.group(1)
+            if pipeline_name not in EXCLUDED_PIPELINES and detector is not None:
+                detector_pipelines[detector] = pipeline_name
+
+        if FINISH_PHRASE in message:
+            if detector is not None and asctime:
+                detector_finish_times[detector] = asctime
+
+    # Determine reference time
+    reference = TIME_REFERENCE if TIME_REFERENCE else "start"
+
+    if reference == "exposure_end":
+        if exposure_end_timestamp is None:
+            reference = "start"
+            reference_timestamp = None
+            detector_reference_times = detector_start_times
+        else:
+            reference_timestamp = exposure_end_timestamp
+            detector_reference_times = None
+    elif reference in ("start", None):
+        reference_timestamp = None
+        detector_reference_times = detector_start_times
+        reference = "start"
+    elif reference == "finish":
+        reference_timestamp = None
+        detector_reference_times = detector_finish_times
+    elif reference in MIDDLE_PHRASES.keys():
+        reference_timestamp = None
+        detector_reference_times = detector_checkpoint_times[reference]
+    else:
+        reference_timestamp = None
+        detector_reference_times = detector_start_times
+        reference = "start"
+
+    # Helper function
+    def get_reference_time(detector):
+        if reference_timestamp is not None:
+            return reference_timestamp
+        elif detector_reference_times and detector in detector_reference_times:
+            return _parse_asctime(detector_reference_times[detector])
+        return None
+
+    # Calculate relative times and durations
+    start_times_relative = {}
+    finish_times_relative = {}
+    checkpoint_times_relative = {name: {} for name in MIDDLE_PHRASES.keys()}
+    durations = {}
+
+    # Get all detectors
+    all_detectors = set(detector_start_times.keys()) | set(detector_finish_times.keys())
+    for checkpoint_times in detector_checkpoint_times.values():
+        all_detectors |= set(checkpoint_times.keys())
+
+    for detector in all_detectors:
+        ref_ts = (
+            get_reference_time(detector)
+            if reference_timestamp is None
+            else reference_timestamp
+        )
+
+        if detector in detector_start_times:
+            start_ts = _parse_asctime(detector_start_times[detector])
+            if start_ts is not None and ref_ts is not None:
+                start_times_relative[detector] = start_ts - ref_ts
+
+        if detector in detector_finish_times:
+            finish_ts = _parse_asctime(detector_finish_times[detector])
+            if finish_ts is not None and ref_ts is not None:
+                finish_times_relative[detector] = finish_ts - ref_ts
+
+            # Calculate actual duration
+            if detector in detector_start_times:
+                start_ts = _parse_asctime(detector_start_times[detector])
+                if start_ts is not None and finish_ts is not None:
+                    durations[detector] = finish_ts - start_ts
+
+        for checkpoint_name in MIDDLE_PHRASES.keys():
+            if detector in detector_checkpoint_times[checkpoint_name]:
+                checkpoint_ts = _parse_asctime(
+                    detector_checkpoint_times[checkpoint_name][detector]
+                )
+                if checkpoint_ts is not None and ref_ts is not None:
+                    checkpoint_times_relative[checkpoint_name][detector] = (
+                        checkpoint_ts - ref_ts
+                    )
+
+    return {
+        "detectors": sorted(list(all_detectors)),
+        "reference_time": (
+            reference_timestamp if reference_timestamp is not None else 0.0
+        ),
+        "time_reference_name": reference,
+        "start_times": start_times_relative,
+        "finish_times": finish_times_relative,
+        "checkpoint_times": checkpoint_times_relative,
+        "durations": durations,
+        "pipelines": detector_pipelines,
+    }
 
 
 def count_detectors_from_logs(
