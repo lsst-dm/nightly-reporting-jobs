@@ -25,6 +25,9 @@ MIDDLE_PHRASES = {
 # Options: None, "start", "finish", "exposure_end", or any key from MIDDLE_PHRASES
 TIME_REFERENCE = "exposure_end"  # Set to None or "start" to use start time as reference
 
+# Pipelines to exclude from counting
+EXCLUDED_PIPELINES = {"Preprocessing"}
+
 # Pattern to extract duration from "Request took X.XXX s." messages
 DURATION_PATTERN = r"Request took\s+([\d.]+)\s+s\."
 # Pattern to extract result from "Result: Success" messages
@@ -60,8 +63,8 @@ def loki_query(
     loki_url = "http://sdfloki.slac.stanford.edu:80"
 
     # Build LogQL query - line filter BEFORE json parsing
-    # Combine all search phrases with OR, including "Running" for pipeline detection
-    all_phrases = [START_PHRASE, FINISH_PHRASE, "Running '/app/"] + list(
+    # Combine all search phrases with OR, be more specific with Running pattern
+    all_phrases = [START_PHRASE, FINISH_PHRASE, "Running '/app/pipelines"] + list(
         MIDDLE_PHRASES.values()
     )
     search_pattern = "|".join(all_phrases)
@@ -177,7 +180,7 @@ def _empty_stats():
         "avg_duration_actual": None,
         "results": {},
         "time_reference": TIME_REFERENCE if TIME_REFERENCE else "start",
-        "pipelines": {},  # Pipeline counts
+        "pipelines": {},
     }
 
     # Add relative timing stats for start
@@ -318,10 +321,10 @@ def count_detectors_from_logs(
                     detector_checkpoint_times[checkpoint_name][detector] = asctime
 
         # Check for pipeline execution
-        if "Running" in message:
-            pipeline_match = re.search(PIPELINE_PATTERN, message)
-            if pipeline_match:
-                pipeline_name = pipeline_match.group(1)
+        pipeline_match = re.search(PIPELINE_PATTERN, message)
+        if pipeline_match:
+            pipeline_name = pipeline_match.group(1)
+            if pipeline_name not in EXCLUDED_PIPELINES:
                 pipelines[pipeline_name] = pipelines.get(pipeline_name, 0) + 1
 
         # Check for completion message
