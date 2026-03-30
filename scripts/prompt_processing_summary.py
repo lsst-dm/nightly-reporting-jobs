@@ -871,6 +871,10 @@ if __name__ == "__main__":
         "BLOCK-417",
         "BLOCK-419",
         "BLOCK-421",
+        "BLOCK-T698",
+        "BLOCK-T703",
+        "BLOCK-T704",
+        "BLOCK-T706",
     ]
     for block in blocks:
         summary = make_summary_message(day_obs_string, instrument, block)
