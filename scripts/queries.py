@@ -35,6 +35,7 @@ import re
 import requests
 import subprocess
 
+import astropy
 from astropy.time import Time, TimeDelta
 import pandas
 
@@ -61,6 +62,27 @@ def get_start_end(day_obs):
     )
     end = start + TimeDelta(1, format="jd")
     return start, end
+
+
+def get_day_obs(time: astropy.time.Time) -> int:
+    """Convert a timestamp into a day-obs string.
+
+    The day-obs is defined as the TAI date of an instant 12 hours before
+    the timestamp.
+
+    Parameters
+    ----------
+    time : `astropy.time.Time`
+        The timestamp to convert.
+
+    Returns
+    -------
+    day_obs : `int`
+        The day_obs corresponding to ``time``, in YYYYMMDD format.
+    """
+    day_obs_delta = TimeDelta(-12.0 * astropy.units.hour, scale="tai")
+    iso_date = (time + day_obs_delta).tai.to_value("iso", "date")
+    return int(iso_date.replace("-", ""))
 
 
 async def get_next_visit_events(day_obs, instrument, survey=None):
@@ -466,17 +488,19 @@ def count_alerts(day_obs_string):
         return None
 
 
-def query_exposures(butler, day_obs, survey, time_start_tai=None, time_end_tai=None):
+def query_exposures(
+    butler, survey, day_obs=None, time_start_tai=None, time_end_tai=None
+):
     """Query exposures from butler for a given day_obs and survey.
 
     Parameters
     ----------
     butler : `lsst.daf.butler.Butler`
         Butler instance for querying.
-    day_obs : `int`
-        Day of observation in YYYYMMDD format.
     survey : `str`
         Survey/science program name (e.g., "BLOCK-407").
+    day_obs : `int`, optional
+        Day of observation in YYYYMMDD format.
     time_start_tai : `str`, optional
         Start time in TAI format (e.g., "2026-03-31T00:08:02.994000").
         If not provided, calculated from day_obs.
@@ -487,21 +511,41 @@ def query_exposures(butler, day_obs, survey, time_start_tai=None, time_end_tai=N
     Returns
     -------
     results : `list`
-        A list of exposure records.
+        A list of exposure IDs.
     """
+
+    # Step 1: Parse times as astropy Time objects, ensure TAI scale
+    t_start = Time(time_start_tai, scale="tai") if time_start_tai else None
+    t_end = Time(time_end_tai, scale="tai") if time_end_tai else None
+
+    # Step 2: Determine day_obs if not given, using time_start_tai
+    if day_obs is None:
+        if t_start is None:
+            raise ValueError("Either day_obs or time_start_tai must be provided")
+        day_obs = get_day_obs(t_start)
+
     # Convert day_obs from integer YYYYMMDD to YYYY-MM-DD string format
     day_obs_str = f"{day_obs//10000:04d}-{(day_obs//100)%100:02d}-{day_obs%100:02d}"
+    # Step 3: Get the nominal interval for the given day_obs
+    day_obs_start_utc, day_obs_end_utc = get_start_end(day_obs_str)
+    day_obs_start_tai = day_obs_start_utc.tai
+    day_obs_end_tai = day_obs_end_utc.tai
 
-    # Get time range if not provided
-    if time_start_tai is None or time_end_tai is None:
-        start_utc, end_utc = get_start_end(day_obs_str)
-        # Convert UTC to TAI
-        if time_start_tai is None:
-            start_tai = Time(start_utc, scale="tai")
-            time_start_tai = start_tai.isot
-        if time_end_tai is None:
-            end_tai = Time(end_utc, scale="tai")
-            time_end_tai = end_tai.isot
+    # Step 4: Fill in missing time_start_tai, time_end_tai from day_obs
+    if t_start is None:
+        t_start = day_obs_start_tai
+        time_start_tai = t_start.isot
+    if t_end is None:
+        t_end = day_obs_end_tai
+        time_end_tai = t_end.isot
+
+    # Step 5: Consistency check -- do day_obs's interval and [t_start, t_end] overlap?
+    # If not, short-circuit and return empty list.
+    latest_start = max(t_start, day_obs_start_tai)
+    earliest_end = min(t_end, day_obs_end_tai)
+    if latest_start >= earliest_end:
+        _log.warning("No overlap in time window & day_obs")
+        return []  # No overlap in time window & day_obs: no exposures possible
 
     results = butler.query_dimension_records(
         "exposure",
@@ -510,6 +554,8 @@ def query_exposures(butler, day_obs, survey, time_start_tai=None, time_end_tai=N
         f"and exposure.timespan.end > T'{time_start_tai}' "
         f"and exposure.timespan.end < T'{time_end_tai}'",
         bind={"day_obs": day_obs, "instrument_name": "LSSTCam", "survey": survey},
+        explain=False,
+        limit=None,
     )
 
-    return [_.id for _ in results]
+    return [exposure.id for exposure in results]

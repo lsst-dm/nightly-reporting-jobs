@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 
+import argparse
 from datetime import datetime
 from multiprocessing import Pool
 from functools import partial
 
+from astropy.time import Time, TimeDelta
 
 from lsst.daf.butler import Butler, CollectionType
 from lsst.pipe.base import Pipeline
@@ -52,11 +54,7 @@ def run_pipetask_and_butler(visit_id, repo="embargo", output_run=None):
 
     input_collections = [
         "LSSTCam/calib",
-        # f"LSSTCam/runs/prompt/{day_obs}"
-        f"LSSTCam/prompt/output-{day_obs_str[:4]}-{day_obs_str[4:6]}-{day_obs_str[6:]}",
-        # in test repo51 there is not a chain; camera is in a different collection.
-        # "LSSTCam/calib/unbounded",
-        # "LSSTCam/prompt/output-2026-02-24/ApPipe/pipelines-294fa0b-config-8f017ea",
+        f"LSSTCam/runs/prompt-{day_obs}"
     ]
     butler = Butler(repo, writeable=True, collections=input_collections)
     where = f"instrument='LSSTCam' and exposure={visit_id}"
@@ -68,7 +66,7 @@ def run_pipetask_and_butler(visit_id, repo="embargo", output_run=None):
         return None
 
     if output_run is None:
-        # TODO: probably do not allow this
+        # TODO: probably do not allow None output_run
         output_collection = f"u/hchiang2/visit_geom/{day_obs}"
         output_run = (
             output_collection
@@ -161,7 +159,24 @@ def run_parallel(butler_repo, exp_ids, n_processes=4):
 
 # Usage in your script:
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "n_hours", nargs="?", default=1, type=float, help="Number of hours (default: 1)"
+    )
+    args = parser.parse_args()
 
-    exp_ids = query_exposures(Butler("embargo"), 20260406, "BLOCK-407")
-    # exp_ids = query_exposures(Butler("embargo"), 20260330, "BLOCK-407", time_start_tai=None, time_end_tai=)
-    run_parallel("embargo", exp_ids, n_processes=24)
+    now_tai = Time.now().tai
+    # Only process visits up to 1 hour ago
+    t_end = now_tai + TimeDelta(-60*60, format="sec")
+    t_start = t_end + TimeDelta(-args.n_hours*60*60, format="sec")
+
+    # exp_ids = query_exposures(Butler("embargo"), 20260406, "BLOCK-407", day_obs=20260406)
+    exp_ids = query_exposures(
+        Butler("embargo"),
+        "BLOCK-407",
+        time_start_tai=t_start.isot,
+        time_end_tai=t_end.isot,
+    )
+    print(f"Found {len(exp_ids)} exposures to process")
+    if exp_ids:
+        run_parallel("embargo", exp_ids, n_processes=24)
