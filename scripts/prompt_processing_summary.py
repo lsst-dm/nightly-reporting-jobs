@@ -134,11 +134,11 @@ def make_summary_message(day_obs, instrument, survey=None):
 
     try:
         collections = butler_nocollection.collections.query(
-            f"{instrument}/prompt/output-{day_obs:s}"
+            f"{instrument}/runs/prompt-{day_obs_int}"
         )
         collection = list(collections)[0]
     except dafButler.MissingCollectionError:
-        output_lines.append(f"No output collection was found for {day_obs:s}")
+        output_lines.append(f"No output collection was found for {day_obs_int}")
         return "\n".join(output_lines)
 
     groups_nvfo = get_nvfo_groups(day_obs, survey)
@@ -152,7 +152,7 @@ def make_summary_message(day_obs, instrument, survey=None):
 
     isr_counts, sfm_counts, dia_counts = count_pipeline_outputs(
         butler_nocollection,
-        f"{instrument}/prompt/output-{day_obs:s}",
+        f"{instrument}/runs/prompt/{day_obs_int}",
         survey,
     )
 
@@ -338,7 +338,7 @@ def make_summary_message(day_obs, instrument, survey=None):
             (x.dataId["visit"], x.dataId["detector"])
             for x in butler_nocollection.query_datasets(
                 "analyzePreliminarySummaryStats_log",
-                collections=f"{instrument}/prompt/output-{day_obs:s}/ApPipe*",
+                collections=f"{instrument}/runs/prompt/{day_obs_int}/ApPipe*",
                 where=f"exposure.science_program IN (survey)",
                 bind={"survey": survey},
                 find_first=False,
@@ -564,7 +564,7 @@ def count_pipeline_outputs(butler, collection, survey):
     butler : `lsst.daf.butler.Butler`
         Butler instance pointing at the repo.
     collection : `str`
-        Root output collection for the day.
+        Prefix of the output RUN collections for the day.
     survey : `str`
         Imaging survey name used to filter datasets.
 
