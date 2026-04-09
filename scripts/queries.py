@@ -88,28 +88,34 @@ async def get_next_visit_events(day_obs, instrument, survey=None):
 
     topic = "lsst.sal.ScriptQueue.logevent_nextVisit"
     start, end = get_start_end(day_obs)
-    df = await client.select_time_series(topic, ["*"], start.utc, end.utc)
-    canceled = await client.select_time_series(
-        topic + "Canceled", ["*"], start.utc, end.utc
-    )
 
-    if df.empty:
-        _log.info(f"No events on {day_obs}")
-        return pandas.DataFrame(
-            columns=["instrument", "survey", "groupId", "filters"]
-        ), pandas.DataFrame(columns=["instrument", "survey", "groupId", "filters"])
+    try:
+        df = await client.select_time_series(topic, ["*"], start.utc, end.utc)
+        canceled = await client.select_time_series(
+            topic + "Canceled", ["*"], start.utc, end.utc
+        )
 
-    if survey:
-        # Only select on-sky exposures from the selected survey
-        df = df.loc[
-            (df["instrument"] == instrument) & (df["survey"] == survey)
-        ].set_index("groupId")
-        _log.info(f"There were {len(df)} {survey} nextVisit events on {day_obs}")
-    else:
-        df = df.loc[(df["instrument"] == instrument)].set_index("groupId")
-        _log.info(f"There were {len(df)} {instrument} nextVisit events on {day_obs}")
+        if df.empty:
+            _log.info(f"No events on {day_obs}")
+            return pandas.DataFrame(
+                columns=["instrument", "survey", "groupId", "filters"]
+            ), pandas.DataFrame(columns=["instrument", "survey", "groupId", "filters"])
 
-    return df, canceled
+        if survey:
+            # Only select on-sky exposures from the selected survey
+            df = df.loc[
+                (df["instrument"] == instrument) & (df["survey"] == survey)
+            ].set_index("groupId")
+            _log.info(f"There were {len(df)} {survey} nextVisit events on {day_obs}")
+        else:
+            df = df.loc[(df["instrument"] == instrument)].set_index("groupId")
+            _log.info(
+                f"There were {len(df)} {instrument} nextVisit events on {day_obs}"
+            )
+
+        return df, canceled
+    finally:
+        await client._influx_client.close()
 
 
 async def get_alert_latency(day_obs, instrument):
