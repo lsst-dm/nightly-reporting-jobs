@@ -1,0 +1,167 @@
+#!/usr/bin/env python3
+
+from datetime import datetime
+from multiprocessing import Pool
+from functools import partial
+
+
+from lsst.daf.butler import Butler, CollectionType
+from lsst.pipe.base import Pipeline
+from lsst.pipe.base.all_dimensions_quantum_graph_builder import (
+    AllDimensionsQuantumGraphBuilder,
+)
+from lsst.pipe.base.single_quantum_executor import SingleQuantumExecutor
+from lsst.pipe.base.taskFactory import TaskFactory
+from lsst.resources import ResourcePath
+from lsst.obs.base.visit_geometry import VisitGeometry
+
+from queries import query_exposures
+
+
+def _get_pipeline_yaml():
+    ap_pipe_dir = ResourcePath("eups://ap_pipe/pipelines/", forceDirectory=True)
+    pipeline_yaml = f"{ap_pipe_dir}/LSSTCam/ApPipe.yaml#consolidateVisitSummary"
+    return pipeline_yaml
+
+
+def run_init(repo, output_run):
+    pipeline = Pipeline.fromFile(_get_pipeline_yaml())
+    # pipeline.addConfigOverride("parameters", "apdb_config", apdb)
+    output_butler = Butler(repo, writeable=True, run=output_run)
+    graph = pipeline.to_graph(output_butler.registry)
+    graph.check_dataset_type_registrations(output_butler, include_packages=True)
+    graph.init_output_run(output_butler)
+
+
+def run_pipetask_and_butler(visit_id, repo="embargo", output_run=None):
+    """
+    Run pipetask and butler commands for a given VISIT_ID.
+
+    Parameters
+    ----------
+    visit_id : `int`
+        Visit ID (e.g., 2026030100037)
+    repo : `str`
+        Repository name
+    """
+    day_obs = str(visit_id)[:8]
+    day_obs_str = str(day_obs)
+
+    print(f"Running with REPO={repo}, VISIT_ID={visit_id}, day_obs={day_obs}")
+    pipeline_yaml = _get_pipeline_yaml()
+
+    input_collections = [
+        "LSSTCam/calib",
+        # f"LSSTCam/runs/prompt/{day_obs}"
+        f"LSSTCam/prompt/output-{day_obs_str[:4]}-{day_obs_str[4:6]}-{day_obs_str[6:]}",
+        # in test repo51 there is not a chain; camera is in a different collection.
+        # "LSSTCam/calib/unbounded",
+        # "LSSTCam/prompt/output-2026-02-24/ApPipe/pipelines-294fa0b-config-8f017ea",
+    ]
+    butler = Butler(repo, writeable=True, collections=input_collections)
+    where = f"instrument='LSSTCam' and exposure={visit_id}"
+    # Only process if all detectors have data.
+    with butler.query() as query:
+        count = query.datasets("preliminary_visit_image").where(where).count()
+    if count < 172:
+        print(f"visit={visit_id} has only {count} pvi; skipping")
+        return None
+
+    if output_run is None:
+        # TODO: probably do not allow this
+        output_collection = f"u/hchiang2/visit_geom/{day_obs}"
+        output_run = (
+            output_collection
+            + "/"
+            + datetime.now().strftime("%Y%m%d%H%M%S%f")
+            + f"/{visit_id}"
+        )
+        butler.collections.register(output_run, CollectionType.RUN)
+
+    print("\nRunning pipetask...")
+    pipeline = Pipeline.fromFile(pipeline_yaml)
+    pipeline_graph = pipeline.to_graph()
+
+    quantum_graph_builder = AllDimensionsQuantumGraphBuilder(
+        pipeline_graph, butler, where=where, bind=None, output_run=output_run
+    )
+    predicted = quantum_graph_builder.finish(
+        output=None,
+        metadata={"skip_existing_in": [], "skip_existing": False, "data_query": where},
+        attach_datastore_records=False,
+    ).assemble()
+
+    nodes_map = predicted.quantum_only_xgraph.nodes
+    quantum_ids = list(predicted)
+    if len(quantum_ids) == 0:
+        print(f"No work to do for visit_id={visit_id}.")
+        return None
+    assert len(quantum_ids) <= 1, f"More than one quantum in the graph in {visit_id}!"
+    quantum_id = quantum_ids[0]
+    node = nodes_map[quantum_id]
+
+    pipeline_node = node["pipeline_node"]
+    quantums = predicted.build_execution_quanta(quantum_ids)
+    quantum = quantums[quantum_id]
+
+    task_factory = TaskFactory()
+    executor = SingleQuantumExecutor(butler=butler, task_factory=task_factory)
+    result = executor.execute(pipeline_node, quantum, quantum_id)
+    print(
+        f"\n Wrote result {[_ for _ in result.quantum.outputs.get('visit_geometry')]}"
+    )
+
+    print("\nSKIP Running butler update-dimension-regions...")
+    """
+    with Butler.from_config(repo, writeable=True, collections=output_run) as butler:
+        VisitGeometry.update_dimension_records(
+            butler,
+            "LSSTCam",
+            where,
+        )
+    """
+
+    print("\nSuccessfully completed all operations")
+
+
+def run_parallel(butler_repo, exp_ids, n_processes=4):
+    """Run run_pipetask_and_butler in parallel for multiple exposures.
+
+    Parameters
+    ----------
+    butler_repo : `str`
+        Path to the butler repository.
+    exp_ids : `list` of `int`
+        List of exposure IDs to process.
+    n_processes : `int`, optional
+        Number of parallel processes to use. Default is 4.
+
+    Returns
+    -------
+    results : `list`
+        List of results from run_pipetask_and_butler for each exposure.
+    """
+    day_obs = str(exp_ids[0])[:8]
+    output_collection = f"u/hchiang2/visit_geom/{day_obs}"
+    output_run = output_collection + "/" + datetime.now().strftime("%Y%m%d%H%M%S%f")
+    print(f"Registering output_run: {output_run}")
+    butler = Butler(butler_repo, writeable=True)
+    butler.collections.register(output_run, CollectionType.RUN)
+
+    # It appears that SingleQuantumExecutor can run without storing inits
+    # run_init(butler_repo, output_run)
+
+    with Pool(processes=n_processes) as pool:
+        results = pool.map(
+            partial(run_pipetask_and_butler, repo=butler_repo, output_run=output_run),
+            exp_ids,
+        )
+    return results
+
+
+# Usage in your script:
+if __name__ == "__main__":
+
+    exp_ids = query_exposures(Butler("embargo"), 20260406, "BLOCK-407")
+    # exp_ids = query_exposures(Butler("embargo"), 20260330, "BLOCK-407", time_start_tai=None, time_end_tai=)
+    run_parallel("embargo", exp_ids, n_processes=24)

@@ -27,6 +27,7 @@ __all__ = [
     "get_status_code_from_loki",
     "get_df_from_loki",
     "get_ignored_event_count",
+    "query_exposures",
 ]
 import logging
 import json
@@ -463,3 +464,52 @@ def count_alerts(day_obs_string):
     else:
         _log.error(f"Error: {response.status_code} - {response.text}")
         return None
+
+
+def query_exposures(butler, day_obs, survey, time_start_tai=None, time_end_tai=None):
+    """Query exposures from butler for a given day_obs and survey.
+
+    Parameters
+    ----------
+    butler : `lsst.daf.butler.Butler`
+        Butler instance for querying.
+    day_obs : `int`
+        Day of observation in YYYYMMDD format.
+    survey : `str`
+        Survey/science program name (e.g., "BLOCK-407").
+    time_start_tai : `str`, optional
+        Start time in TAI format (e.g., "2026-03-31T00:08:02.994000").
+        If not provided, calculated from day_obs.
+    time_end_tai : `str`, optional
+        End time in TAI format (e.g., "2026-03-31T05:48:02.994000").
+        If not provided, calculated from day_obs.
+
+    Returns
+    -------
+    results : `list`
+        A list of exposure records.
+    """
+    # Convert day_obs from integer YYYYMMDD to YYYY-MM-DD string format
+    day_obs_str = f"{day_obs//10000:04d}-{(day_obs//100)%100:02d}-{day_obs%100:02d}"
+
+    # Get time range if not provided
+    if time_start_tai is None or time_end_tai is None:
+        start_utc, end_utc = get_start_end(day_obs_str)
+        # Convert UTC to TAI
+        if time_start_tai is None:
+            start_tai = Time(start_utc, scale="tai")
+            time_start_tai = start_tai.isot
+        if time_end_tai is None:
+            end_tai = Time(end_utc, scale="tai")
+            time_end_tai = end_tai.isot
+
+    results = butler.query_dimension_records(
+        "exposure",
+        where="exposure.science_program IN (survey) "
+        "and instrument=instrument_name and day_obs=day_obs "
+        f"and exposure.timespan.end > T'{time_start_tai}' "
+        f"and exposure.timespan.end < T'{time_end_tai}'",
+        bind={"day_obs": day_obs, "instrument_name": "LSSTCam", "survey": survey},
+    )
+
+    return [_.id for _ in results]
