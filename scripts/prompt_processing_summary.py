@@ -134,9 +134,13 @@ def make_summary_message(day_obs, instrument, survey=None):
 
     try:
         collections = butler_nocollection.collections.query(
-            f"{instrument}/runs/prompt-{day_obs_int}"
+            f"{instrument}/runs/prompt-{day_obs_int}", flatten_chains=True
         )
-        collection = list(collections)[0]
+        runs = [
+            col
+            for col in collections
+            if col.startswith(f"{instrument}/runs/prompt/{day_obs_int}")
+        ]
     except dafButler.MissingCollectionError:
         output_lines.append(f"No output collection was found for {day_obs_int}")
         return "\n".join(output_lines)
@@ -156,9 +160,7 @@ def make_summary_message(day_obs, instrument, survey=None):
         survey,
     )
 
-    b = dafButler.Butler(
-        butler_alias, collections=[collection, f"{instrument}/defaults"]
-    )
+    b = dafButler.Butler(butler_alias, collections=runs + [f"{instrument}/defaults"])
 
     log_visit_detector = set(
         [
@@ -392,7 +394,7 @@ def make_summary_message(day_obs, instrument, survey=None):
     isr_outputs = count_datasets(
         b,
         "calibrateImage_log",  # this misses ISR-only
-        collection,
+        runs,
         where=f"exposure.science_program IN (survey)",
         bind={"survey": survey},
     )
@@ -406,7 +408,7 @@ def make_summary_message(day_obs, instrument, survey=None):
     sfm_outputs = count_datasets(
         b,
         "analyzePreliminarySummaryStats_log",
-        collection,
+        runs,
         where=f"exposure.science_program IN (survey)",
         bind={"survey": survey},
     )
@@ -427,13 +429,13 @@ def make_summary_message(day_obs, instrument, survey=None):
     count_next = count_datasets(
         b,
         "associateSolarSystemDirectSource_log",
-        collection,
+        runs,
         where=f"exposure.science_program IN (survey)",
         bind={"survey": survey},
     ) - count_datasets(
         b,
         "analyzeUnassociatedDirectSolarSystemObjectTable_log",
-        collection,
+        runs,
         where=f"exposure.science_program IN (survey)",
         bind={"survey": survey},
     )
@@ -541,11 +543,11 @@ def make_summary_message(day_obs, instrument, survey=None):
     return "\n".join(output_lines)
 
 
-def count_datasets(butler, dataset_type, collection, **kwargs):
+def count_datasets(butler, dataset_type, collections, **kwargs):
     try:
         refs = butler.query_datasets(
             dataset_type,
-            collections=collection,
+            collections=collections,
             find_first=False,
             explain=False,
             limit=None,
@@ -556,14 +558,14 @@ def count_datasets(butler, dataset_type, collection, **kwargs):
     return len(refs)
 
 
-def count_pipeline_outputs(butler, collection, survey):
+def count_pipeline_outputs(butler, collection_prefix, survey):
     """Count pipeline log datasets for ISR, SingleFrame and ApPipe.
 
     Parameters
     ----------
     butler : `lsst.daf.butler.Butler`
         Butler instance pointing at the repo.
-    collection : `str`
+    collection_prefix : `str`
         Prefix of the output RUN collections for the day.
     survey : `str`
         Imaging survey name used to filter datasets.
@@ -578,7 +580,7 @@ def count_pipeline_outputs(butler, collection, survey):
     isr_counts = count_datasets(
         butler,
         "isr_log",
-        f"{collection}/Isr/*",
+        f"{collection_prefix}/Isr/*",
         where=f"exposure.science_program IN (survey)",
         bind={"survey": survey},
     )
@@ -586,7 +588,7 @@ def count_pipeline_outputs(butler, collection, survey):
     sfm_counts = count_datasets(
         butler,
         "isr_log",
-        f"{collection}/SingleFrame*",
+        f"{collection_prefix}/SingleFrame*",
         where=f"exposure.science_program IN (survey)",
         bind={"survey": survey},
     )
@@ -594,7 +596,7 @@ def count_pipeline_outputs(butler, collection, survey):
     dia_counts = count_datasets(
         butler,
         "isr_log",
-        f"{collection}/ApPipe*",
+        f"{collection_prefix}/ApPipe*",
         where=f"exposure.science_program IN (survey)",
         bind={"survey": survey},
     )
