@@ -17,7 +17,7 @@ from lsst.pipe.base.taskFactory import TaskFactory
 from lsst.resources import ResourcePath
 from lsst.obs.base.visit_geometry import VisitGeometry
 
-from queries import query_exposures
+from queries import get_day_obs, query_exposures
 
 
 def _get_pipeline_yaml():
@@ -170,12 +170,14 @@ if __name__ == "__main__":
     t_end = now_tai + TimeDelta(-60*60, format="sec")
     t_start = t_end + TimeDelta(-args.n_hours*60*60, format="sec")
 
+    day_obs = get_day_obs(t_start)
     # exp_ids = query_exposures(Butler("embargo"), 20260406, "BLOCK-407", day_obs=20260406)
     exp_ids = query_exposures(
         Butler("embargo"),
         "BLOCK-407",
         time_start_tai=t_start.isot,
         time_end_tai=t_end.isot,
+        collections=f"u/hchiang2/visit_geom/{day_obs}/*",
     )
     print(f"Found {len(exp_ids)} exposures to process")
     if exp_ids:

@@ -21,6 +21,7 @@
 
 __all__ = [
     "count_alerts",
+    "get_day_obs",
     "get_next_visit_events",
     "get_nvfo_groups",
     "get_no_work_count_from_loki",
@@ -489,9 +490,14 @@ def count_alerts(day_obs_string):
 
 
 def query_exposures(
-    butler, survey, day_obs=None, time_start_tai=None, time_end_tai=None
+    butler,
+    survey,
+    day_obs=None,
+    time_start_tai=None,
+    time_end_tai=None,
+    collections=None,
 ):
-    """Query exposures from butler for a given day_obs and survey.
+    """Query exposures without visit_geometry from butler for a given day_obs and survey.
 
     Parameters
     ----------
@@ -507,11 +513,13 @@ def query_exposures(
     time_end_tai : `str`, optional
         End time in TAI format (e.g., "2026-03-31T05:48:02.994000").
         If not provided, calculated from day_obs.
+    collections : `list` of `str`
+        Collections to search for existing visit_geometry.
 
     Returns
     -------
     results : `list`
-        A list of exposure IDs.
+        A list of exposure IDs without visit_geometry.
     """
 
     # Step 1: Parse times as astropy Time objects, ensure TAI scale
@@ -558,4 +566,17 @@ def query_exposures(
         limit=None,
     )
 
-    return [exposure.id for exposure in results]
+    exposures = {exposure.id for exposure in results}
+    exposure_exists = set()
+    if collections:
+        exists = butler.query_datasets(
+            "visit_geometry",
+            collections=collections,
+            find_first=False,
+            where="instrument='LSSTCam' and exposure in (exposures)",
+            bind={"exposures": exposures},
+            explain=False,
+            limit=None,
+        )
+        exposure_exists = {_.dataId["visit"] for _ in exists}
+    return list(exposures - exposure_exists)
