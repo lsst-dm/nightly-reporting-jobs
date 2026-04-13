@@ -17,6 +17,7 @@ if __name__ == "__main__":
 
     day_obs = date.today() - timedelta(days=1)
     day_obs_string = day_obs.strftime("%Y-%m-%d")
+    day_obs_int = int(day_obs_string.replace("-", ""))
     output_message = (
         f":clamps: {day_obs.strftime('%A %Y-%m-%d')} :clamps: \n"
         f"Task report from ApPipe run provenance \n"
@@ -24,8 +25,9 @@ if __name__ == "__main__":
 
     butler_nocollection = Butler("embargo")
     collections = butler_nocollection.collections.query(
-        f"{instrument}/prompt/output-{day_obs_string}/Ap*"
+        f"{instrument}/runs/prompt/{day_obs_int}/Ap*"
     )
+
     tag = get_package_tag(butler_nocollection, collections[0])
     if tag:
         table = generate_task_report(butler_nocollection, collections[0])

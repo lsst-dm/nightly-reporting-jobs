@@ -134,29 +134,33 @@ def make_summary_message(day_obs, instrument, survey=None):
 
     try:
         collections = butler_nocollection.collections.query(
-            f"{instrument}/prompt/output-{day_obs:s}"
+            f"{instrument}/runs/prompt-{day_obs_int}", flatten_chains=True
         )
-        collection = list(collections)[0]
+        runs = [
+            col
+            for col in collections
+            if col.startswith(f"{instrument}/runs/prompt/{day_obs_int}")
+        ]
     except dafButler.MissingCollectionError:
-        output_lines.append(f"No output collection was found for {day_obs:s}")
+        output_lines.append(f"No output collection was found for {day_obs_int}")
         return "\n".join(output_lines)
 
     groups_nvfo = get_nvfo_groups(day_obs, survey)
     group_nvfo_missed = set(groups) - set(groups_nvfo)
     if group_nvfo_missed:
         output_lines.append(
-            f"- {len(group_nvfo_missed)} raw groups were not received by NVFO."
+            f"- {len(group_nvfo_missed)} raw groups were not received by NVFO"
+            " (caveat: known to show false positive when Loki returns incomplete data)"
         )
+        print(f"group_nvfo_missed: {group_nvfo_missed}")
 
     isr_counts, sfm_counts, dia_counts = count_pipeline_outputs(
         butler_nocollection,
-        f"{instrument}/prompt/output-{day_obs:s}",
+        f"{instrument}/runs/prompt/{day_obs_int}",
         survey,
     )
 
-    b = dafButler.Butler(
-        butler_alias, collections=[collection, f"{instrument}/defaults"]
-    )
+    b = dafButler.Butler(butler_alias, collections=runs + [f"{instrument}/defaults"])
 
     log_visit_detector = set(
         [
@@ -336,7 +340,7 @@ def make_summary_message(day_obs, instrument, survey=None):
             (x.dataId["visit"], x.dataId["detector"])
             for x in butler_nocollection.query_datasets(
                 "analyzePreliminarySummaryStats_log",
-                collections=f"{instrument}/prompt/output-{day_obs:s}/ApPipe*",
+                collections=f"{instrument}/runs/prompt/{day_obs_int}/ApPipe*",
                 where=f"exposure.science_program IN (survey)",
                 bind={"survey": survey},
                 find_first=False,
@@ -390,7 +394,7 @@ def make_summary_message(day_obs, instrument, survey=None):
     isr_outputs = count_datasets(
         b,
         "calibrateImage_log",  # this misses ISR-only
-        collection,
+        runs,
         where=f"exposure.science_program IN (survey)",
         bind={"survey": survey},
     )
@@ -404,7 +408,7 @@ def make_summary_message(day_obs, instrument, survey=None):
     sfm_outputs = count_datasets(
         b,
         "analyzePreliminarySummaryStats_log",
-        collection,
+        runs,
         where=f"exposure.science_program IN (survey)",
         bind={"survey": survey},
     )
@@ -425,13 +429,13 @@ def make_summary_message(day_obs, instrument, survey=None):
     count_next = count_datasets(
         b,
         "associateSolarSystemDirectSource_log",
-        collection,
+        runs,
         where=f"exposure.science_program IN (survey)",
         bind={"survey": survey},
     ) - count_datasets(
         b,
         "analyzeUnassociatedDirectSolarSystemObjectTable_log",
-        collection,
+        runs,
         where=f"exposure.science_program IN (survey)",
         bind={"survey": survey},
     )
@@ -539,11 +543,11 @@ def make_summary_message(day_obs, instrument, survey=None):
     return "\n".join(output_lines)
 
 
-def count_datasets(butler, dataset_type, collection, **kwargs):
+def count_datasets(butler, dataset_type, collections, **kwargs):
     try:
         refs = butler.query_datasets(
             dataset_type,
-            collections=collection,
+            collections=collections,
             find_first=False,
             explain=False,
             limit=None,
@@ -554,15 +558,15 @@ def count_datasets(butler, dataset_type, collection, **kwargs):
     return len(refs)
 
 
-def count_pipeline_outputs(butler, collection, survey):
+def count_pipeline_outputs(butler, collection_prefix, survey):
     """Count pipeline log datasets for ISR, SingleFrame and ApPipe.
 
     Parameters
     ----------
     butler : `lsst.daf.butler.Butler`
         Butler instance pointing at the repo.
-    collection : `str`
-        Root output collection for the day.
+    collection_prefix : `str`
+        Prefix of the output RUN collections for the day.
     survey : `str`
         Imaging survey name used to filter datasets.
 
@@ -576,7 +580,7 @@ def count_pipeline_outputs(butler, collection, survey):
     isr_counts = count_datasets(
         butler,
         "isr_log",
-        f"{collection}/Isr/*",
+        f"{collection_prefix}/Isr/*",
         where=f"exposure.science_program IN (survey)",
         bind={"survey": survey},
     )
@@ -584,7 +588,7 @@ def count_pipeline_outputs(butler, collection, survey):
     sfm_counts = count_datasets(
         butler,
         "isr_log",
-        f"{collection}/SingleFrame*",
+        f"{collection_prefix}/SingleFrame*",
         where=f"exposure.science_program IN (survey)",
         bind={"survey": survey},
     )
@@ -592,7 +596,7 @@ def count_pipeline_outputs(butler, collection, survey):
     dia_counts = count_datasets(
         butler,
         "isr_log",
-        f"{collection}/ApPipe*",
+        f"{collection_prefix}/ApPipe*",
         where=f"exposure.science_program IN (survey)",
         bind={"survey": survey},
     )
@@ -862,13 +866,17 @@ if __name__ == "__main__":
     )
 
     blocks = [
+        "BLOCK-365",
         "BLOCK-407",
         "BLOCK-408",
         "BLOCK-416",
         "BLOCK-417",
         "BLOCK-419",
         "BLOCK-421",
-        "BLOCK-T637",
+        "BLOCK-T698",
+        "BLOCK-T703",
+        "BLOCK-T704",
+        "BLOCK-T706",
     ]
     for block in blocks:
         summary = make_summary_message(day_obs_string, instrument, block)

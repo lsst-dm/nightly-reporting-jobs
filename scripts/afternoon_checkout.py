@@ -10,19 +10,19 @@ if __name__ == "__main__":
     url = os.getenv(webhook)
 
     day_obs = date.today()
-    day_obs_string = day_obs.strftime("%Y-%m-%d")
+    day_obs_string = day_obs.strftime("%Y%m%d")
 
     output_lines = []
 
     butler = Butler("embargo_readonly")
-    day_chain_collection = f"{instrument}/prompt/output-{day_obs_string:s}"
+    day_chain_collection = f"{instrument}/runs/prompt-{day_obs_string:s}"
     try:
         collections = butler.collections.query(day_chain_collection)
         collection = list(collections)[0]
         print(f"collection {collection} exists")
     except MissingCollectionError:
         output_lines.append(
-            f"Collection {day_chain_collection} was not found in embargo_readonly :postgresq:."
+            f"Collection {day_chain_collection} was not found in embargo_readonly :postgresql:"
         )
 
     try:

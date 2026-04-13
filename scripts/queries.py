@@ -333,6 +333,24 @@ def get_no_work_count_from_loki(
     return count1, count2
 
 
+def get_handled_surveys_from_loki(day_obs, instrument="LSSTCam"):
+    results = query_loki(
+        day_obs,
+        container_name=instrument.lower(),
+        search_string='|= "Preparing Butler for visit FannedOutVisit"',
+    )
+
+    pattern = re.compile(
+        r".*Preparing Butler for visit FannedOutVisit.*survey='(?P<survey>[-\w\s]*)',"
+    )
+    surveys = set()
+    for line in results.splitlines():
+        m = pattern.match(line)
+        if m:
+            surveys |= {m["survey"]}
+    return surveys
+
+
 def get_skipped_surveys_from_loki(day_obs, instrument="LSSTCam"):
     results = query_loki(
         day_obs,
@@ -341,7 +359,7 @@ def get_skipped_surveys_from_loki(day_obs, instrument="LSSTCam"):
     )
 
     pattern = re.compile(
-        r".*Skipping visit: No pipeline configured for.*survey=(?P<survey>[-\w]*),"
+        r".*Skipping visit: No pipeline configured for.*survey=(?P<survey>[-\w\s]*),"
     )
     skipped_surveys = set()
     for line in results.splitlines():
@@ -355,10 +373,12 @@ def get_unsupported_surveys_from_loki(day_obs, instrument="LSSTCam"):
     results = query_loki(
         day_obs,
         container_name=instrument.lower(),
-        search_string='|= "Unsupported survey"',
+        search_string='|= "No pipelines config matches"',
     )
 
-    pattern = re.compile(r".*RuntimeError: Unsupported survey: (?P<survey>[-\w]*)")
+    pattern = re.compile(
+        r".*RuntimeError: No pipelines config matches \([^,]+, survey=(?P<survey>[^,]+),"
+    )
     unsupported_surveys = set()
     for line in results.splitlines():
         m = pattern.match(line)
