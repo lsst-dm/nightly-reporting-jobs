@@ -28,7 +28,7 @@ __all__ = [
     "get_status_code_from_loki",
     "get_df_from_loki",
     "get_ignored_event_count",
-    "query_exposures",
+    "query_exposures_without_visit_geometry",
 ]
 import logging
 import json
@@ -489,7 +489,7 @@ def count_alerts(day_obs_string):
         return None
 
 
-def query_exposures(
+def query_exposures_without_visit_geometry(
     butler,
     survey,
     day_obs=None,
@@ -507,14 +507,15 @@ def query_exposures(
         Survey/science program name (e.g., "BLOCK-407").
     day_obs : `int`, optional
         Day of observation in YYYYMMDD format.
+        If not provided, calculated from time_start_tai.
     time_start_tai : `str`, optional
         Start time in TAI format (e.g., "2026-03-31T00:08:02.994000").
         If not provided, calculated from day_obs.
     time_end_tai : `str`, optional
         End time in TAI format (e.g., "2026-03-31T05:48:02.994000").
         If not provided, calculated from day_obs.
-    collections : `list` of `str`
-        Collections to search for existing visit_geometry.
+    collections : `str` or `list` [`str`]
+        A collection name or iterable of collection names to search for existing visit_geometry.
 
     Returns
     -------
@@ -553,7 +554,7 @@ def query_exposures(
     earliest_end = min(t_end, day_obs_end_tai)
     if latest_start >= earliest_end:
         _log.warning("No overlap in time window & day_obs")
-        return []  # No overlap in time window & day_obs: no exposures possible
+        return []
 
     results = butler.query_dimension_records(
         "exposure",
