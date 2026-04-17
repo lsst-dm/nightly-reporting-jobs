@@ -6,7 +6,7 @@ import logging
 
 from astropy.time import Time, TimeDelta
 
-from lsst.daf.butler import Butler, CollectionType, MissingCollectionError
+from lsst.daf.butler import Butler, CollectionType
 from lsst.pipe.base import Pipeline
 from lsst.pipe.base.all_dimensions_quantum_graph_builder import (
     AllDimensionsQuantumGraphBuilder,
@@ -139,10 +139,7 @@ if __name__ == "__main__":
     butler = Butler("embargo", writeable=True)
     day_obs = get_day_obs(t_start)
     chain = f"u/hchiang2/visit_geom/{day_obs}"
-    try:
-        results = butler.collections.query(chain)
-    except MissingCollectionError:
-        butler.collections.register(chain, CollectionType.CHAINED)
+    butler.collections.register(chain, CollectionType.CHAINED)
 
     exp_ids = query_exposures_without_visit_geometry(
         butler,
@@ -161,4 +158,4 @@ if __name__ == "__main__":
         butler.collections.register(output_run, CollectionType.RUN)
         butler.collections.prepend_chain(output_collection, output_run)
 
-        run_all_visits("embargo", exp_ids, output_run, n_processes=12)
+        run_all_visits("embargo", exp_ids, output_run, n_processes=18)
