@@ -60,6 +60,7 @@ def run_all_visits(butler_repo, exp_ids, output_run, n_processes=4):
     report : `Report`
         Aggregated execution report for all quanta.
     """
+    # Assumes all exp_ids are from the same night; may break if window spans midnight.
     day_obs = str(exp_ids[0])[:8]
     input_collections = ["LSSTCam/calib", f"LSSTCam/runs/prompt-{day_obs}"]
     butler = Butler(butler_repo, writeable=True, collections=input_collections)
