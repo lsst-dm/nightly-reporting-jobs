@@ -125,6 +125,20 @@ def run_all_visits(butler_repo, exp_ids, output_run, n_processes=4):
     return report
 
 
+BLOCKS = [
+    "BLOCK-365",
+    "BLOCK-407",
+    "BLOCK-408",
+    "BLOCK-416",
+    "BLOCK-417",
+    "BLOCK-419",
+    "BLOCK-421",
+    "BLOCK-T698",
+    "BLOCK-T703",
+    "BLOCK-T704",
+    "BLOCK-T706",
+]
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -142,21 +156,24 @@ if __name__ == "__main__":
     chain = f"u/hchiang2/visit_geom/{day_obs}"
     butler.collections.register(chain, CollectionType.CHAINED)
 
-    exp_ids = query_exposures_without_visit_geometry(
-        butler,
-        "BLOCK-407",
-        day_obs=day_obs,
-        time_start_tai=t_start.isot,
-        time_end_tai=t_end.isot,
-        collections=chain,
-    )
-    _log.debug(f"Found {len(exp_ids)} exposures to process")
+    all_exp_ids = []
+    for block in BLOCKS:
+        exp_ids = query_exposures_without_visit_geometry(
+            butler,
+            block,
+            day_obs=day_obs,
+            time_start_tai=t_start.isot,
+            time_end_tai=t_end.isot,
+            collections=chain,
+        )
+        _log.debug(f"Block {block}: found {len(exp_ids)} exposures to process")
+        all_exp_ids.extend(exp_ids)
 
-    if exp_ids:
+    if all_exp_ids:
         output_collection = f"u/hchiang2/visit_geom/{day_obs}"
         output_run = output_collection + "/" + datetime.now().strftime("%Y%m%d%H%M%S%f")
         _log.info(f"Registering output_run: {output_run}")
         butler.collections.register(output_run, CollectionType.RUN)
         butler.collections.prepend_chain(output_collection, output_run)
 
-        run_all_visits("embargo", exp_ids, output_run, n_processes=18)
+        run_all_visits("embargo", all_exp_ids, output_run, n_processes=18)
