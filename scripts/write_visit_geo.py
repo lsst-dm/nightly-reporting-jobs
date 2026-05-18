@@ -8,9 +8,6 @@ from astropy.time import Time, TimeDelta
 
 from lsst.daf.butler import Butler, CollectionType
 from lsst.pipe.base import Pipeline
-from lsst.pipe.base.all_dimensions_quantum_graph_builder import (
-    AllDimensionsQuantumGraphBuilder,
-)
 from lsst.pipe.base.mp_graph_executor import MPGraphExecutorError
 from lsst.pipe.base.separable_pipeline_executor import SeparablePipelineExecutor
 from lsst.resources import ResourcePath
@@ -76,16 +73,7 @@ def run_all_visits(butler_repo, exp_ids, output_run, n_processes=4):
     _log.debug(f"Building graph for {len(valid_exp_ids)} visits: {where}")
 
     pipeline = Pipeline.fromFile(_get_pipeline_yaml())
-    pipeline_graph = pipeline.to_graph()
-
-    quantum_graph_builder = AllDimensionsQuantumGraphBuilder(
-        pipeline_graph, butler, where=where, bind=None, output_run=output_run
-    )
-    predicted = quantum_graph_builder.finish(
-        output=None,
-        metadata={"skip_existing_in": [], "skip_existing": False, "data_query": where},
-        attach_datastore_records=False,
-    ).assemble()
+    predicted = executor.build_quantum_graph(pipeline, where=where)
 
     if len(list(predicted)) == 0:
         _log.info("No work to do for any visit.")
