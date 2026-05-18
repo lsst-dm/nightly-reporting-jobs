@@ -28,6 +28,37 @@ def _get_pipeline_yaml():
     return pipeline_yaml
 
 
+def _run_init(butler_repo, day_obs, init_run, seed_exp_id):
+    """Write init outputs, configs, and package versions to the daily init run.
+
+    Parameters
+    ----------
+    butler_repo : `str`
+        URI or alias to the butler repository.
+    day_obs : `str`
+        Eight-digit day_obs string (YYYYMMDD), used to select input collections.
+    init_run : `str`
+        Output RUN collection for init outputs.  Must already be registered.
+    seed_exp_id : `int`
+        Any exposure ID from today; used only to instantiate tasks so their
+        configs and init outputs can be serialized.
+
+    Notes
+    -----
+    Safe to call multiple times for the same ``init_run``: existing init
+    outputs are skipped and existing configs/packages are compared rather than
+    re-written, so subsequent calls within a day are no-ops if nothing changed.
+    """
+    input_collections = ["LSSTCam/calib", f"LSSTCam/runs/prompt-{day_obs}"]
+    butler = Butler(butler_repo, writeable=True, collections=input_collections, run=init_run)
+    pipeline = Pipeline.fromFile(_get_pipeline_yaml())
+    executor = SeparablePipelineExecutor(butler=butler, skip_existing_in=[init_run])
+    where = f"instrument='LSSTCam' and exposure={seed_exp_id}"
+    graph = executor.build_quantum_graph(pipeline, where=where)
+    executor.pre_execute_qgraph(graph)
+    _log.info("Init outputs written to %s", init_run)
+
+
 def run_all_visits(butler_repo, exp_ids, output_run, n_processes=4):
     """Build a single quantum graph for all exposures and execute in parallel.
 
@@ -81,8 +112,6 @@ def run_all_visits(butler_repo, exp_ids, output_run, n_processes=4):
 
     _log.info(f"Executing {len(list(predicted))} quanta with {n_processes} processes")
 
-    # TODO: write config and init outputs only once a day
-    #executor.pre_execute_qgraph(predicted)
     try:
         executor.run_pipeline(predicted, num_proc=n_processes)
     except MPGraphExecutorError as exc:
@@ -135,6 +164,12 @@ if __name__ == "__main__":
 
     if all_exp_ids:
         output_collection = f"u/hchiang2/visit_geom/{day_obs}"
+
+        init_run = output_collection + "/init"
+        butler.collections.register(init_run, CollectionType.RUN)
+        butler.collections.prepend_chain(output_collection, init_run)
+        _run_init("embargo", day_obs, init_run, all_exp_ids[0])
+
         output_run = output_collection + "/" + datetime.now().strftime("%Y%m%d%H%M%S%f")
         _log.info(f"Registering output_run: {output_run}")
         butler.collections.register(output_run, CollectionType.RUN)
