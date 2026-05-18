@@ -759,6 +759,7 @@ RECURRENT_ERRORS_BY_TASK = {
         "Exception NonfinitePsfShapeError: Failed to determine PSF",
         "Exception NoPsfStarsToStarsMatchError",
         "Exception NormalizedCalibrationFluxError",
+        "Exception NoStarsForShapeletsError",
         "Exception ObjectSizeNoGoodSourcesError",
         "Exception ObjectSizeNoSourcesError",
         "Exception PsfexNoGoodStarsError",
