@@ -453,8 +453,8 @@ def count_alerts(day_obs_string):
     topic = "lsst-alerts-v11"
 
     params = {
-        "query": f"sum by (topic) (kafka_topic_partition_current_offset{{"
-        f'namespace=~"vcluster--usdf-prompt-processing", topic="{topic}"}})',
+        "query": f"sum by (topic) (max by (topic, partition) (kafka_topic_partition_current_offset{{"
+        f'namespace="vcluster--usdf-prompt-processing", topic="{topic}"}}))' ,
         "start": start.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "end": end.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "step": "24h",
