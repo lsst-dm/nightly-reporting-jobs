@@ -25,8 +25,13 @@ if __name__ == "__main__":
 
     butler_nocollection = Butler("embargo")
     collections = butler_nocollection.collections.query(
-        f"{instrument}/runs/prompt/{day_obs_int}/Ap*"
+        f"LSSTCam/runs/prompt-{day_obs_int}", flatten_chains=True
     )
+    collections = [
+        col
+        for col in collections
+        if "ApPipe" in col and col.startswith(f"{instrument}/runs/prompt")
+    ]
 
     tag = get_package_tag(butler_nocollection, collections[0])
     if tag:
