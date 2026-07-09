@@ -793,6 +793,7 @@ RECURRENT_ERRORS_BY_TASK = {
     "detectAndMeasureDiaSource": [
         "Exception BadSubtractionError",
         "Exception NoDiaSourcesError",
+        "Exception TooManyCosmicRays",
         "Exception ValueError: RANSAC could not find a valid consensus set",  # DM-52291
         "Processing timed out",
     ],
