@@ -108,7 +108,7 @@ async def get_next_visit_events(day_obs, instrument, survey=None):
     canceled : `pandas.DataFrame`
         Canceled nextVisit events.
     """
-    client = EfdClient("usdf_efd")
+    client = EfdClient("usdf_efd", output_mode="dataframe")
 
     topic = "lsst.sal.ScriptQueue.logevent_nextVisit"
     start, end = get_start_end(day_obs)
@@ -154,7 +154,7 @@ async def get_alert_latency(day_obs, instrument):
     count : `int`
         The number of metrics.
     """
-    client = EfdClient("usdfdev_efd", db_name="lsst.prompt")
+    client = EfdClient("usdfdev_efd", db_name="lsst.prompt", output_mode="dataframe")
     start, end = get_start_end(day_obs)
     df = await client.select_time_series(
         "lsst.prompt.prod.associationTimingMetrics",
