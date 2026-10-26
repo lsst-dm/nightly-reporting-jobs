@@ -116,6 +116,11 @@ async def get_next_visit_events(day_obs, instrument, survey=None):
     canceled = await client.select_time_series(
         topic + "Canceled", ["*"], start.utc, end.utc
     )
+    if canceled.empty:
+        _log.info(f"No Canceled events on {day_obs}")
+        canceled = pandas.DataFrame(
+            columns=["instrument", "survey", "groupId", "filters"]
+        )
 
     if df.empty:
         _log.info(f"No events on {day_obs}")
