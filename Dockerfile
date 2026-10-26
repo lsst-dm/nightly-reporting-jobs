@@ -19,8 +19,8 @@ RUN <<EOT
 EOT
 
 RUN groupadd -g 4085 -o rubin_users \
-    && useradd -u 17951 -g 4085 lsstsvc1
-USER lsstsvc1
+    && useradd -u 48047 -g 4085 rubinpp
+USER rubinpp
 
 WORKDIR /
 COPY scripts scripts/
