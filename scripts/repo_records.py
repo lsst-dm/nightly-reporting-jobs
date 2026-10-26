@@ -13,7 +13,7 @@ if __name__ == "__main__":
 
     now = datetime.datetime.now()
     table1 = queryCollections(
-        "embargo", f"{instrument}/defaults", [CollectionType.CHAINED], chains="TREE"
+        "embargo", f"{instrument}/defaults", [CollectionType.CHAINED], chains="TABLE"
     )
     table2 = queryCollections(
         "embargo", f"{instrument}/templates", [CollectionType.CHAINED], chains="TREE"
