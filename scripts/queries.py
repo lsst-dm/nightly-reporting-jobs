@@ -109,36 +109,38 @@ async def get_next_visit_events(day_obs, instrument, survey=None):
         Canceled nextVisit events.
     """
     client = EfdClient("usdf_efd", output_mode="dataframe")
-
-    topic = "lsst.sal.ScriptQueue.logevent_nextVisit"
-    start, end = get_start_end(day_obs)
-    df = await client.select_time_series(topic, ["*"], start.utc, end.utc)
-    canceled = await client.select_time_series(
-        topic + "Canceled", ["*"], start.utc, end.utc
-    )
-    if canceled.empty:
-        _log.info(f"No Canceled events on {day_obs}")
-        canceled = pandas.DataFrame(
-            columns=["instrument", "survey", "groupId", "filters"]
+    try:
+        topic = "lsst.sal.ScriptQueue.logevent_nextVisit"
+        start, end = get_start_end(day_obs)
+        df = await client.select_time_series(topic, ["*"], start.utc, end.utc)
+        canceled = await client.select_time_series(
+            topic + "Canceled", ["*"], start.utc, end.utc
         )
+        if canceled.empty:
+            _log.info(f"No Canceled events on {day_obs}")
+            canceled = pandas.DataFrame(
+                columns=["instrument", "survey", "groupId", "filters"]
+            )
 
-    if df.empty:
-        _log.info(f"No events on {day_obs}")
-        return pandas.DataFrame(
-            columns=["instrument", "survey", "groupId", "filters"]
-        ), pandas.DataFrame(columns=["instrument", "survey", "groupId", "filters"])
+        if df.empty:
+            _log.info(f"No events on {day_obs}")
+            return pandas.DataFrame(
+                columns=["instrument", "survey", "groupId", "filters"]
+            ), pandas.DataFrame(columns=["instrument", "survey", "groupId", "filters"])
 
-    if survey:
-        # Only select on-sky exposures from the selected survey
-        df = df.loc[
-            (df["instrument"] == instrument) & (df["survey"] == survey)
-        ].set_index("groupId")
-        _log.info(f"There were {len(df)} {survey} nextVisit events on {day_obs}")
-    else:
-        df = df.loc[(df["instrument"] == instrument)].set_index("groupId")
-        _log.info(f"There were {len(df)} {instrument} nextVisit events on {day_obs}")
+        if survey:
+            # Only select on-sky exposures from the selected survey
+            df = df.loc[
+                (df["instrument"] == instrument) & (df["survey"] == survey)
+            ].set_index("groupId")
+            _log.info(f"There were {len(df)} {survey} nextVisit events on {day_obs}")
+        else:
+            df = df.loc[(df["instrument"] == instrument)].set_index("groupId")
+            _log.info(f"There were {len(df)} {instrument} nextVisit events on {day_obs}")
 
-    return df, canceled
+        return df, canceled
+    finally:
+        await client._influx_client.close()
 
 
 async def get_alert_latency(day_obs, instrument):
@@ -160,19 +162,22 @@ async def get_alert_latency(day_obs, instrument):
         The number of metrics.
     """
     client = EfdClient("usdfdev_efd", db_name="lsst.prompt", output_mode="dataframe")
-    start, end = get_start_end(day_obs)
-    df = await client.select_time_series(
-        "lsst.prompt.prod.associationTimingMetrics",
-        ["alert_timing_since_shutter_close"],
-        start.utc,
-        end.utc,
-    )
-    if df.empty:
-        _log.info(f"No timing metrics on {day_obs}")
-        return None, 0
-    else:
-        median = df["alert_timing_since_shutter_close"].median()
-        return median, len(df)
+    try:
+        start, end = get_start_end(day_obs)
+        df = await client.select_time_series(
+            "lsst.prompt.prod.associationTimingMetrics",
+            ["alert_timing_since_shutter_close"],
+            start.utc,
+            end.utc,
+        )
+        if df.empty:
+            _log.info(f"No timing metrics on {day_obs}")
+            return None, 0
+        else:
+            median = df["alert_timing_since_shutter_close"].median()
+            return median, len(df)
+    finally:
+        await client._influx_client.close()
 
 
 def query_loki(day_obs, container_name, search_string):
