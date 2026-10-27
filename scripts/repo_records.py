@@ -9,7 +9,7 @@ from lsst.daf.butler.script.queryCollections import queryCollections
 
 if __name__ == "__main__":
     url = os.getenv("SLACK_WEBHOOK_URL_TEST")
-    instrument = os.getenv("INSTRUMENT")
+    instrument = os.getenv("INSTRUMENT", "LSSTCam")
 
     now = datetime.datetime.now()
     table1 = queryCollections(
@@ -17,6 +17,9 @@ if __name__ == "__main__":
     )
     table2 = queryCollections(
         "embargo", f"{instrument}/templates", [CollectionType.CHAINED], chains="TREE"
+    )
+    table3 = queryCollections(
+        "embargo", f"{instrument}/calib", [CollectionType.CHAINED], chains="TABLE"
     )
     output_message = (
         f":rice_ball: *{now.strftime('%A %Y-%m-%dT%H:%M')}* :rice_ball: \n"
@@ -26,6 +29,10 @@ if __name__ == "__main__":
         + "\n"
         + "```"
         + "\n".join(table1.pformat(align="<", max_lines=-1))
+        + "```"
+        + "\n"
+        + "```"
+        + "\n".join(table3.pformat(align="<", max_lines=-1))
         + "```"
     )
 
