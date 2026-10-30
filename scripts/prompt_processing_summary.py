@@ -777,6 +777,7 @@ RECURRENT_ERRORS_BY_TASK = {
     ],
     "buildTemplate": [
         "Exception TooManyMaskedPixelsError",
+        "Exception ValueError: Unable to compute PSF FWHM",
         "Processing timed out",
     ],
     "subtractImages": [
