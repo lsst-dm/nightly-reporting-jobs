@@ -24,7 +24,7 @@ from queries import (
 INSTRUMENT_CONFIG = {
     "LSSTCam": {
         "detectors": 189,
-        "off": 17,
+        "off": 20,
         "survey": "BLOCK-407",
     },
     "LSSTComCam": {
