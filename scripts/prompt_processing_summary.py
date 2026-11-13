@@ -370,6 +370,24 @@ def make_summary_message(day_obs, instrument, survey=None):
     )
     count_no_apdb = count_no_work1 + count_no_work2
     count_failed = dia_counts - len(dia_visit_detector) - count_no_apdb
+    # Add those that associateApdb_log reports as failures despite having produced
+    # dia_visit_detector output. The main case is PostApdbUpdateError, which aborts
+    # AFTER writing the APDB/DIA output, so the (visit, detector) is present in
+    # dia_visit_detector and is otherwise miscounted as passed above. Any associateApdb
+    # quantum whose log carries an ERROR-level record (levelno > 30) but still wrote
+    # output is counted here.
+    associateApdb_failed_visit_detector = {
+        (ref.dataId["visit"], ref.dataId["detector"])
+        for ref in b.query_datasets(
+            "associateApdb_log",
+            where="exposure.science_program IN (survey)",
+            bind={"survey": survey},
+            explain=False,
+            limit=None,
+        )
+        if any(rec.levelno > 30 for rec in b.get(ref))
+    }
+    count_failed_extra = len(associateApdb_failed_visit_detector & dia_visit_detector)
     output_lines.extend(
         [
             f"Number of main pipeline runs with outputs: {len(log_visit_detector)} total",
@@ -378,15 +396,20 @@ def make_summary_message(day_obs, instrument, survey=None):
         ]
     )
     output_lines.append(
-        "- ApPipe: {:d}, {:d}+{:d}(no-work)+{:d}(no-work)={:d} passed, {:d} failed".format(
+            "- ApPipe: {:d}, {:d}+{:d}(no-work)+{:d}(no-work)={:d} passed DIA, {:d}+{:d} failed".format(
             dia_counts,
             len(dia_visit_detector),
             count_no_work1,
             count_no_work2,
             len(dia_visit_detector) + count_no_apdb,
             count_failed,
+            count_failed_extra,
         )
     )
+    if count_failed_extra:
+        output_lines.append(
+            f"  - {count_failed_extra} associateApdb wrote output but failed."
+        )
     count_failed_sfm = dia_counts - len(sfm_output_subset_visit_detector)
     if sfm_output_subset_visit_detector:
         output_lines.append(f"  - {count_failed_sfm} failed at single frame stage")
