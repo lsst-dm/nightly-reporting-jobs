@@ -161,7 +161,7 @@ async def get_alert_latency(day_obs, instrument):
     count : `int`
         The number of metrics.
     """
-    client = EfdClient("usdfdev_efd", db_name="lsst.prompt", output_mode="dataframe")
+    client = EfdClient("usdf_efd", db_name="lsst.prompt", output_mode="dataframe")
     try:
         start, end = get_start_end(day_obs)
         df = await client.select_time_series(
