@@ -32,6 +32,7 @@ __all__ = [
 ]
 import logging
 import json
+import os
 import re
 import requests
 import subprocess
@@ -48,6 +49,20 @@ logging.basicConfig(
 )
 _log = logging.getLogger(__name__)
 _log.setLevel(logging.DEBUG)
+
+
+def _require_efd_auth():
+    """Ensure EFD credentials are available outside the RSP.
+
+    Raises
+    ------
+    RuntimeError
+        Raised if the ``EFDAUTH`` environment variable is not set.
+    """
+    if not os.getenv("EFDAUTH"):
+        raise RuntimeError(
+            "EFDAUTH is required outside the RSP to access EFD but not set."
+        )
 
 
 def get_start_end(day_obs):
@@ -108,6 +123,7 @@ async def get_next_visit_events(day_obs, instrument, survey=None):
     canceled : `pandas.DataFrame`
         Canceled nextVisit events.
     """
+    _require_efd_auth()
     client = EfdClient("usdf_efd", output_mode="dataframe")
     try:
         topic = "lsst.sal.ScriptQueue.logevent_nextVisit"
@@ -161,6 +177,7 @@ async def get_alert_latency(day_obs, instrument):
     count : `int`
         The number of metrics.
     """
+    _require_efd_auth()
     client = EfdClient("usdf_efd", db_name="lsst.prompt", output_mode="dataframe")
     try:
         start, end = get_start_end(day_obs)
