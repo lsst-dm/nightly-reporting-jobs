@@ -16,7 +16,7 @@ if __name__ == "__main__":
         "embargo", f"{instrument}/defaults", [CollectionType.CHAINED], chains="TABLE"
     )
     table2 = queryCollections(
-        "embargo", f"{instrument}/templates", [CollectionType.CHAINED], chains="TREE"
+        "embargo", f"Prompt/templates", [CollectionType.CHAINED], chains="TREE"
     )
     table3 = queryCollections(
         "embargo", f"{instrument}/calib", [CollectionType.CHAINED], chains="TABLE"
